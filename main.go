@@ -28,9 +28,8 @@ func Write(connection net.Conn, buffer []byte) error {
 }
 
 type ClientRequest struct {
-	clientWriteChan chan WriteOp
-	acks            uint32
-	index           uint32
+	writeChan chan WriteOp
+	buffer    []byte
 }
 
 type WriteOp struct {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"go.etcd.io/etcd/raft/v3"
@@ -67,14 +68,18 @@ func server() {
 	}
 
 	numPeers := len(peerAddresses)
+	//peerSteps := make([][]chan raftpb.Message, numPeers)
+	//peerProposes := make([][]chan WriteOp, numPeers)
 	peerConnections := make([][]chan WriteOp, numPeers)
-	peerRoundRobins := make([]uint32, numPeers)
+	peerConnRoundRobins := make([]uint32, numPeers)
+	//peerProposeRoundRobins := make([]uint32, numPeers)
+	//peerStepRoundRobins := make([]uint32, numPeers)
 
 	storage := raft.NewMemoryStorage()
 	config := &raft.Config{
 		ID:              uint64(nodeIndex + 1),
-		ElectionTick:    10,
-		HeartbeatTick:   1,
+		ElectionTick:    20,
+		HeartbeatTick:   10,
 		Storage:         storage,
 		MaxSizePerMsg:   math.MaxUint32,
 		MaxInflightMsgs: 1000000,
@@ -87,9 +92,13 @@ func server() {
 
 	node := raft.StartNode(config, peers)
 
-	ticker := time.NewTicker(5 * time.Millisecond)
+	connectGroup := sync.WaitGroup{}
+	connectGroup.Add((numPeers - 1) * numPeerConnections)
+
+	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	go func() {
+		connectGroup.Wait()
 		for {
 			select {
 			case <-ticker.C:
@@ -104,18 +113,27 @@ func server() {
 				// TODO("Fix peer sending msgs")
 				for _, msg := range rd.Messages {
 					buffer := pool.Get().([]byte)
-					bytes, err := msg.MarshalTo(buffer[4:])
+
+					size, err := msg.MarshalTo(buffer[4:])
 					if err != nil {
 						log.Printf("Marshal error: %v", err)
 						continue
 					}
+
+					if size > 128 {
+						fmt.Printf("Message Type: %d, %s\n", size, msg.Type.String())
+					}
 					//fmt.Printf("Send peer message: %d -> %d\n", msg.From, msg.To)
-					binary.LittleEndian.PutUint32(buffer[:4], uint32(bytes))
+					binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
 					//channel := s.writeChannels[msg.To-1][msg.Index%uint64(s.numPeerConnections)]
 					//channel <- ClientWrite{
 					//	&buffer,
 					//	bytes + 4,
 					//}
+					peerConnections[msg.To-1][atomic.AddUint32(&peerConnRoundRobins[msg.To-1], 1)%uint32(numPeerConnections)] <- WriteOp{
+						buffer,
+						uint32(size + 4),
+					}
 				}
 
 				if !raft.IsEmptySnap(rd.Snapshot) {
@@ -133,13 +151,18 @@ func server() {
 						node.ApplyConfChange(cc)
 					case raftpb.EntryNormal:
 						if len(entry.Data) >= 4 && node.Status().Lead == config.ID {
-							index := binary.BigEndian.Uint32(entry.Data[:4])
-							// TODO("idk fix struct")
+							index := binary.LittleEndian.Uint32(entry.Data[:4])
+
+							buffer := pool.Get().([]byte)
+							//Write 0 bytes
+							binary.BigEndian.PutUint32(buffer[:4], 0)
+
 							senderAny, ok := senders.LoadAndDelete(index)
 							if ok {
-								sender := senderAny.(*ClientRequest)
+								request := senderAny.(ClientRequest)
+								pool.Put(request.buffer)
 								select {
-								case sender.clientWriteChan <- *sender.data:
+								case request.writeChan <- WriteOp{buffer, 4}:
 								default:
 									log.Printf("Client write channel is full, dropping message?")
 								}
@@ -206,34 +229,26 @@ func server() {
 						panic(err)
 					}
 
-					nextIndex := atomic.AddUint32(&opIndex, 1)
-
 					//fmt.Printf("Received client request new index is: %d\n", nextIndex)
 
-					senders.Store(nextIndex, &ClientRequest{
-						index:           nextIndex,
-						acks:            1,
-						clientWriteChan: writeChan,
-					})
+					//senders.Store(nextIndex, &ClientRequest{
+					//	index:           nextIndex,
+					//	acks:            1,
+					//	writeChan: writeChan,
+					//})
 
-					// TODO("replace with raft propose channel propose and marshal")
-					//for i := range numPeers {
-					//	if i == nodeIndex {
-					//		continue
-					//	}
-					//
-					//	//fmt.Printf("[%d -> %d] Proposing\n", nodeIndex, i)
-					//	bufferCopy := pool.Get().([]byte)
-					//	//size := amount + 9
-					//	//binary.LittleEndian.PutUint32(bufferCopy[0:4], size-4)
-					//	//bufferCopy[4] = OP_PROPOSE
-					//	//binary.LittleEndian.PutUint32(bufferCopy[5:9], nextIndex)
-					//	//copy(bufferCopy[9:size], readBuffer[:amount])
-					//	//peerConnections[i][atomic.AddUint32(&peerRoundRobins[i], 1)%uint32(numPeerConnections)] <- WriteOp{
-					//	//	size:   size,
-					//	//	buffer: bufferCopy,
-					//	//}
-					//}
+					messageId := atomic.AddUint32(&opIndex, 1)
+					bufferCopy := pool.Get().([]byte)
+					binary.LittleEndian.PutUint32(bufferCopy[:4], messageId)
+					copy(bufferCopy[4:amount+4], readBuffer[:amount])
+					senders.Store(messageId, ClientRequest{writeChan, bufferCopy})
+
+					go func(buffer []byte) {
+						err := node.Propose(context.TODO(), buffer[:amount+4])
+						if err != nil {
+							panic(err)
+						}
+					}(bufferCopy)
 				}
 			}()
 		}
@@ -260,6 +275,7 @@ func server() {
 			fmt.Printf("Got connection from peer %d\n", peerIndex)
 
 			go func() {
+				connectGroup.Wait()
 				readBuffer := make([]byte, poolDataSize)
 				for {
 					err := Read(connection, readBuffer[:4])
@@ -275,6 +291,24 @@ func server() {
 					}
 
 					// TODO("replace with raft step and marshal")
+
+					var msg raftpb.Message
+					if err := msg.Unmarshal(readBuffer[:amount]); err != nil {
+						log.Printf("Unmarshal error: %v", err)
+						continue
+					}
+					if msg.From > 0 {
+						//fmt.Printf("Peer message %d -> %d, %d\n", msg.From, msg.To, msg.Index%uint64(s.numPeerConnections))
+						//fmt.Println("Putting into steps")
+						fmt.Printf("Received proposal %s\n", msg.Type)
+						//peerSteps[msg.From-1][atomic.AddUint32(&peerStepRoundRobins[msg.From-1], 1)%uint32(numPeerConnections)] <- msg
+						go func(msg raftpb.Message) {
+							err := node.Step(context.TODO(), msg)
+							if err != nil {
+								panic(err)
+							}
+						}(msg)
+					}
 
 					//op := readBuffer[0]
 					//index := binary.LittleEndian.Uint32(readBuffer[1:5])
@@ -306,7 +340,7 @@ func server() {
 					//		//fmt.Printf("Responding to client for index: %d\n", index)
 					//		buffer := pool.Get().([]byte)
 					//		binary.LittleEndian.PutUint32(buffer[:4], 4)
-					//		request.clientWriteChan <- WriteOp{
+					//		request.writeChan <- WriteOp{
 					//			buffer: buffer,
 					//			size:   8,
 					//		}
@@ -328,7 +362,7 @@ func server() {
 			fmt.Printf("Skipping it because its %d\n", p)
 			continue
 		}
-		peerRoundRobins[p] = 0
+		peerConnRoundRobins[p] = 0
 		peerConnections[p] = make([]chan WriteOp, numPeerConnections)
 		for c := range numPeerConnections {
 			for {
@@ -350,6 +384,7 @@ func server() {
 				}
 
 				writeChan := make(chan WriteOp, peerWriteChanSize)
+				peerConnections[p][c] = writeChan
 				go func() {
 					defer func() {
 						err := connection.Close()
@@ -368,7 +403,7 @@ func server() {
 					}
 				}()
 
-				peerConnections[p][c] = writeChan
+				connectGroup.Done()
 				break
 			}
 		}

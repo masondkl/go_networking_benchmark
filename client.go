@@ -51,7 +51,6 @@ func client() {
 		go func(i int, connection net.Conn) {
 			bytes := make([]byte, dataSize+4)
 			for c := range numClientOps {
-				//fmt.Printf("Writing out op: %d\n", c)
 				binary.LittleEndian.PutUint32(bytes[:4], uint32(dataSize))
 
 				begin := time.Now().UnixMicro()
