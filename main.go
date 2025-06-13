@@ -5,12 +5,6 @@ import (
 	"os"
 )
 
-//type ClientOp struct {
-//	connection *net.Conn
-//	channel    *chan []byte
-//	data       *[]byte
-//}
-
 func Read(connection net.Conn, buffer []byte) error {
 	for start := 0; start != len(buffer); {
 		amount, reason := connection.Read(buffer[start:])
