@@ -75,9 +75,9 @@ func client() {
 
 				end := time.Now().UnixMicro()
 				clientTimes[i][c] = int(end - begin)
-				//if c%10000 == 0 {
-				//	fmt.Printf("[%d] %d\n", i, c)
-				//}
+				if c%10000 == 0 {
+					fmt.Printf("[%d] %d\n", i, c)
+				}
 			}
 			group.Done()
 			//err := connection.Close()
@@ -90,17 +90,12 @@ func client() {
 
 	end := time.Now().UnixMilli()
 
-	sum := 0
 	times := make([]int, 0)
 	for i := range numClients {
 		times = append(times, clientTimes[i]...)
 	}
 	sort.Ints(times)
 	length := len(times)
-
-	for i := range times {
-		sum += times[i]
-	}
 
 	fmt.Printf("0th percentile %dus\n", times[0])
 	fmt.Printf("10th percentile %dus\n", times[int(float32(length)*0.1)])
