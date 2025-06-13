@@ -1,13 +1,23 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+//type ClientOp struct {
+//	connection *net.Conn
+//	channel    *chan []byte
+//	data       *[]byte
+//}
 
 func Read(connection net.Conn, buffer []byte) error {
 	for start := 0; start != len(buffer); {
@@ -31,92 +41,361 @@ func Write(connection net.Conn, buffer []byte) error {
 	return nil
 }
 
-func main() {
-	value := os.Args[1]
-	n, err := strconv.Atoi(os.Args[2])
-	if err != nil {
-		panic(err)
-	}
-	clients, err := strconv.Atoi(os.Args[2])
-	if err != nil {
-		panic(err)
-	}
-	address := os.Args[3]
-	clientCount := n / clients
+type ClientRequest struct {
+	clientWriteChan chan WriteOp
+	acks            uint32
+	index           uint32
+}
 
-	if value == "client" {
-		bytes := make([]byte, 1)
-		connections := make([]net.Conn, clients)
-		for i := 0; i < clients; i++ {
+type WriteOp struct {
+	buffer []byte
+	size   uint32
+}
+
+const OP_PROPOSE = 0
+const OP_ACK = 1
+
+func main() {
+	if os.Args[1] == "client" {
+		address := os.Args[2]
+		dataSize, err := strconv.Atoi(os.Args[3])
+		if err != nil {
+			panic(err)
+		}
+
+		numOps, err := strconv.Atoi(os.Args[4])
+		if err != nil {
+			panic(err)
+		}
+
+		numClients, err := strconv.Atoi(os.Args[5])
+		if err != nil {
+			panic(err)
+		}
+
+		numClientOps := numOps / numClients
+
+		connections := make([]net.Conn, numClients)
+		for i := 0; i < numClients; i++ {
 			connection, err := net.Dial("tcp", address)
+			if err != nil {
+				panic(err)
+			}
+			err = connection.(*net.TCPConn).SetNoDelay(true)
 			if err != nil {
 				panic(err)
 			}
 			connections[i] = connection
 		}
 		group := sync.WaitGroup{}
-		group.Add(clients)
+		group.Add(numClients)
 		start := time.Now().UnixMilli()
-		for i := range clients {
+		for i := range numClients {
 			go func(i int, connection net.Conn) {
-				c := 0
-				for range clientCount {
+				bytes := make([]byte, dataSize+4)
+				for c := range numClientOps {
+					//fmt.Printf("Writing out op: %d\n", c)
+					binary.LittleEndian.PutUint32(bytes[:4], uint32(dataSize))
+
 					err := Write(connection, bytes)
 					if err != nil {
-						return
+						panic(err)
 					}
-					err = Read(connection, bytes)
+
+					err = Read(connection, bytes[:4])
 					if err != nil {
-						return
+						panic(err)
 					}
-					c++
+
+					amount := binary.LittleEndian.Uint32(bytes[:4])
+
+					err = Read(connection, bytes[:amount])
+					if err != nil {
+						panic(err)
+					}
 					if c%10000 == 0 {
 						fmt.Printf("[%d] %d\n", i, c)
 					}
 				}
-				err := connection.Close()
-				if err != nil {
-					panic(err)
-				}
 				group.Done()
+				//err := connection.Close()
+				//if err != nil {
+				//	panic(err)
+				//}
 			}(i, connections[i])
 		}
 		group.Wait()
 		end := time.Now().UnixMilli()
-		fmt.Printf("%d round trips in %dms, %d/s", n, end-start, int(float32(n)/(float32(end-start)/1000.0)))
+		fmt.Printf("%d round trips in %dms, %d/s", numOps, end-start, int(float32(numOps)/(float32(end-start)/1000.0)))
+		select {}
 	} else {
-		bytes := make([]byte, 1)
-		server, err := net.Listen("tcp", address)
+		var senders sync.Map
+		var opIndex uint32
+
+		nodeIndex, err := strconv.Atoi(os.Args[2])
 		if err != nil {
 			panic(err)
 		}
-		connections := make([]net.Conn, clients)
-		for i := 0; i < clients; i++ {
-			connection, err := server.Accept()
+		poolDataSize, err := strconv.Atoi(os.Args[3])
+		if err != nil {
+			panic(err)
+		}
+		poolWarmupSize, err := strconv.Atoi(os.Args[4])
+		if err != nil {
+			panic(err)
+		}
+		numPeerConnections, err := strconv.Atoi(os.Args[5])
+		if err != nil {
+			panic(err)
+		}
+		clientWriteChanSize, err := strconv.Atoi(os.Args[6])
+		if err != nil {
+			panic(err)
+		}
+		peerWriteChanSize, err := strconv.Atoi(os.Args[7])
+		if err != nil {
+			panic(err)
+		}
+		peerListenAddress := os.Args[8]
+		clientListenAddress := os.Args[9]
+		peerAddresses := strings.Split(os.Args[10], ",")
+
+		var pool = sync.Pool{
+			New: func() interface{} {
+				return make([]byte, poolDataSize)
+			},
+		}
+
+		for range poolWarmupSize {
+			pool.Put(pool.Get())
+		}
+
+		peerListener, err := net.Listen("tcp", peerListenAddress)
+		if err != nil {
+			panic(err)
+		}
+
+		numPeers := len(peerAddresses)
+		peerConnections := make([][]chan WriteOp, numPeers)
+		peerRoundRobins := make([]uint32, numPeers)
+
+		go func() {
+			clientListener, err := net.Listen("tcp", clientListenAddress)
 			if err != nil {
 				panic(err)
 			}
-			connections[i] = connection
-		}
-		println("Server here?")
-		for i := range clients {
-			go func(connection net.Conn) {
-				for range clientCount {
-					err := Read(connection, bytes)
-					if err != nil {
-						return
-					}
-					err = Write(connection, bytes)
-					if err != nil {
-						return
-					}
-				}
-				err := connection.Close()
+
+			for {
+				connection, err := clientListener.Accept()
 				if err != nil {
 					panic(err)
 				}
-			}(connections[i])
+
+				err = connection.(*net.TCPConn).SetNoDelay(true)
+				if err != nil {
+					panic(err)
+				}
+
+				writeChan := make(chan WriteOp, clientWriteChanSize)
+				go func() {
+					defer func() {
+						err := connection.Close()
+						if err != nil {
+							panic(err)
+						}
+						close(writeChan)
+					}()
+
+					for clientWrite := range writeChan {
+						err := Write(connection, clientWrite.buffer[:clientWrite.size])
+						if err != nil {
+							panic(err)
+						}
+						pool.Put(clientWrite.buffer)
+					}
+				}()
+
+				go func() {
+					readBuffer := make([]byte, poolDataSize)
+
+					for {
+						if err := Read(connection, readBuffer[:4]); err != nil {
+							panic("Error reading size")
+						}
+
+						amount := binary.LittleEndian.Uint32(readBuffer[:4])
+
+						if err := Read(connection, readBuffer[:amount]); err != nil {
+							log.Printf("Error reading message: %v", err)
+							panic(err)
+						}
+
+						nextIndex := atomic.AddUint32(&opIndex, 1)
+
+						//fmt.Printf("Received client request new index is: %d\n", nextIndex)
+
+						senders.Store(nextIndex, &ClientRequest{
+							index:           nextIndex,
+							acks:            1,
+							clientWriteChan: writeChan,
+						})
+
+						for i := range numPeers {
+							if i == nodeIndex {
+								continue
+							}
+
+							//fmt.Printf("[%d -> %d] Proposing\n", nodeIndex, i)
+							bufferCopy := pool.Get().([]byte)
+							size := amount + 9
+							binary.LittleEndian.PutUint32(bufferCopy[0:4], size-4)
+							bufferCopy[4] = OP_PROPOSE
+							binary.LittleEndian.PutUint32(bufferCopy[5:9], nextIndex)
+							copy(bufferCopy[9:size], readBuffer[:amount])
+							peerConnections[i][atomic.AddUint32(&peerRoundRobins[i], 1)%uint32(numPeerConnections)] <- WriteOp{
+								size:   size,
+								buffer: bufferCopy,
+							}
+						}
+					}
+				}()
+			}
+		}()
+
+		go func() {
+			for {
+				connection, err := peerListener.Accept()
+				if err != nil {
+					panic(err)
+				}
+
+				err = connection.(*net.TCPConn).SetNoDelay(true)
+				if err != nil {
+					panic(err)
+				}
+
+				bytes := make([]byte, 4)
+				err = Read(connection, bytes)
+				if err != nil {
+					panic(err)
+				}
+				peerIndex := binary.LittleEndian.Uint32(bytes)
+				fmt.Printf("Got connection from peer %d\n", peerIndex)
+
+				go func() {
+					readBuffer := make([]byte, poolDataSize)
+					for {
+						err := Read(connection, readBuffer[:4])
+						if err != nil {
+							panic(err)
+						}
+
+						amount := binary.LittleEndian.Uint32(readBuffer[:4])
+
+						err = Read(connection, readBuffer[:amount])
+						if err != nil {
+							panic(err)
+						}
+
+						op := readBuffer[0]
+						index := binary.LittleEndian.Uint32(readBuffer[1:5])
+						if op == OP_PROPOSE {
+							buffer := pool.Get().([]byte)
+							binary.LittleEndian.PutUint32(buffer[0:4], 5)
+							buffer[4] = OP_ACK
+							binary.LittleEndian.PutUint32(buffer[5:9], index)
+
+							//fmt.Printf("[%d -> %d] Received proposal for index: %d\n", peerIndex, nodeIndex, index)
+
+							peerConns := peerConnections[peerIndex]
+							nextPeer := atomic.AddUint32(&peerRoundRobins[peerIndex], 1) % uint32(numPeerConnections)
+
+							peerConns[nextPeer] <- WriteOp{
+								buffer: buffer,
+								size:   9,
+							}
+						} else if op == OP_ACK {
+							senderAny, ok := senders.Load(index)
+							if !ok {
+								panic("Received ack late!")
+							}
+							request := senderAny.(*ClientRequest)
+
+							totalAcks := atomic.AddUint32(&request.acks, 1)
+							//fmt.Printf("Total acks vs numPeers: %d vs %d\n", totalAcks, numPeers)
+							if totalAcks == uint32(numPeers) {
+								//fmt.Printf("Responding to client for index: %d\n", index)
+								buffer := pool.Get().([]byte)
+								binary.LittleEndian.PutUint32(buffer[:4], 4)
+								request.clientWriteChan <- WriteOp{
+									buffer: buffer,
+									size:   8,
+								}
+								senders.Delete(index)
+							} else {
+								//fmt.Printf("Received ack for index: %d\n", index)
+							}
+
+						} else {
+							log.Panicf("GOT BAD OP: %d\n", op)
+						}
+					}
+				}()
+			}
+		}()
+
+		for p := range numPeers {
+			if p == nodeIndex {
+				fmt.Printf("Skipping it because its %d\n", p)
+				continue
+			}
+			peerRoundRobins[p] = 0
+			peerConnections[p] = make([]chan WriteOp, numPeerConnections)
+			for c := range numPeerConnections {
+				for {
+					connection, err := net.Dial("tcp", peerAddresses[p])
+					if err != nil {
+						continue
+					}
+
+					err = connection.(*net.TCPConn).SetNoDelay(true)
+					if err != nil {
+						panic(err)
+					}
+
+					bytes := make([]byte, 4)
+					binary.LittleEndian.PutUint32(bytes, uint32(nodeIndex))
+					err = Write(connection, bytes)
+					if err != nil {
+						panic(err)
+					}
+
+					writeChan := make(chan WriteOp, peerWriteChanSize)
+					go func() {
+						defer func() {
+							err := connection.Close()
+							if err != nil {
+								panic(err)
+							}
+							close(writeChan)
+						}()
+
+						for clientWrite := range writeChan {
+							err := Write(connection, clientWrite.buffer[:clientWrite.size])
+							if err != nil {
+								panic(err)
+							}
+							pool.Put(clientWrite.buffer)
+						}
+					}()
+
+					peerConnections[p][c] = writeChan
+					break
+				}
+			}
 		}
+
+		fmt.Printf("ALL CONNECTIONS MADE IT\n")
 		select {}
 	}
 }
