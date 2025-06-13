@@ -88,14 +88,26 @@ func client() {
 	}
 	group.Wait()
 
+	end := time.Now().UnixMilli()
+
+	sum := 0
 	times := make([]int, 0)
 	for i := range numClients {
 		times = append(times, clientTimes[i]...)
 	}
 	sort.Ints(times)
-
 	length := len(times)
 
+	for i := range times {
+		sum += times[i]
+	}
+
+	avg := sum / length
+
+	fmt.Printf("Total clients: %d\n", numClients)
+	fmt.Printf("Total operations: %d\n", numOps)
+	fmt.Printf("Total operation time: %v\n", end-start)
+	fmt.Printf("Average operation time: %v\n", avg)
 	fmt.Printf("0th percentile %dus\n", times[0])
 	fmt.Printf("10th percentile %dus\n", times[int(float32(length)*0.1)])
 	fmt.Printf("20th percentile %dus\n", times[int(float32(length)*0.2)])
@@ -107,8 +119,5 @@ func client() {
 	fmt.Printf("80th percentile %dus\n", times[int(float32(length)*0.8)])
 	fmt.Printf("90th percentile %dus\n", times[int(float32(length)*0.9)])
 	fmt.Printf("100th percentile %dus\n", times[length-1])
-
-	end := time.Now().UnixMilli()
-	fmt.Printf("%d round trips in %dms, %d/s", numOps, end-start, int(float32(numOps)/(float32(end-start)/1000.0)))
 	select {}
 }
