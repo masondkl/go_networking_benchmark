@@ -102,7 +102,6 @@ func client() {
 		sum += times[i]
 	}
 
-	fmt.Printf("Total clients: %d\n", numClients)
 	fmt.Printf("0th percentile %dus\n", times[0])
 	fmt.Printf("10th percentile %dus\n", times[int(float32(length)*0.1)])
 	fmt.Printf("20th percentile %dus\n", times[int(float32(length)*0.2)])
