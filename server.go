@@ -58,9 +58,15 @@ func server() {
 		},
 	}
 
-	for range poolWarmupSize {
-		pool.Put(pool.Get())
+	var stored [][]byte
+	stored = make([][]byte, poolWarmupSize)
+	for i := range poolWarmupSize {
+		stored[i] = pool.Get().([]byte)
 	}
+	for i := range stored {
+		pool.Put(stored[i])
+	}
+	stored = nil
 
 	peerListener, err := net.Listen("tcp", peerListenAddress)
 	if err != nil {
@@ -129,6 +135,11 @@ func server() {
 
 					if !raft.IsEmptySnap(rd.Snapshot) {
 						fmt.Printf("Append snapshot to raft\n")
+					}
+
+					requiredSize := 4 + msg.Size()
+					if len(buffer) < requiredSize {
+						buffer = append(buffer, make([]byte, requiredSize)...)
 					}
 
 					size, err := msg.MarshalTo(buffer[4:])
@@ -228,7 +239,7 @@ func server() {
 			}()
 
 			go func() {
-				readBuffer := make([]byte, poolDataSize)
+				readBuffer := make([]byte, 1000000)
 
 				for {
 					if err := Read(connection, readBuffer[:4]); err != nil {
@@ -281,7 +292,7 @@ func server() {
 
 			go func() {
 				connectGroup.Wait()
-				readBuffer := make([]byte, poolDataSize)
+				readBuffer := make([]byte, 1000000)
 				for {
 					err := Read(connection, readBuffer[:4])
 					if err != nil {
