@@ -105,13 +105,13 @@ func server() {
 				node.Tick()
 			case rd := <-node.Ready():
 				//fmt.Printf("Commited entries: %d\n", len(rd.CommittedEntries))
-				//if !raft.IsEmptyHardState(rd.HardState) {
-				//	//fmt.Printf("Setting hardstate\n")
-				//	err := storage.SetHardState(rd.HardState)
-				//	if err != nil {
-				//		panic(err)
-				//	}
-				//}
+				if !raft.IsEmptyHardState(rd.HardState) {
+					//fmt.Printf("Setting hardstate\n")
+					err := storage.SetHardState(rd.HardState)
+					if err != nil {
+						panic(err)
+					}
+				}
 
 				if len(rd.Entries) > 0 {
 					if err := storage.Append(rd.Entries); err != nil {
