@@ -78,8 +78,8 @@ func server() {
 	storage := raft.NewMemoryStorage()
 	config := &raft.Config{
 		ID:              uint64(nodeIndex + 1),
-		ElectionTick:    20,
-		HeartbeatTick:   10,
+		ElectionTick:    10,
+		HeartbeatTick:   5,
 		Storage:         storage,
 		MaxSizePerMsg:   math.MaxUint32,
 		MaxInflightMsgs: 1000000,
@@ -95,7 +95,7 @@ func server() {
 	connectGroup := sync.WaitGroup{}
 	connectGroup.Add((numPeers - 1) * numPeerConnections)
 
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 	go func() {
 		connectGroup.Wait()
@@ -104,6 +104,15 @@ func server() {
 			case <-ticker.C:
 				node.Tick()
 			case rd := <-node.Ready():
+				//fmt.Printf("Commited entries: %d\n", len(rd.CommittedEntries))
+				if !raft.IsEmptyHardState(rd.HardState) {
+					//fmt.Printf("Setting hardstate\n")
+					err := storage.SetHardState(rd.HardState)
+					if err != nil {
+						panic(err)
+					}
+				}
+
 				if len(rd.Entries) > 0 {
 					if err := storage.Append(rd.Entries); err != nil {
 						log.Printf("Append entries error: %v", err)
@@ -114,30 +123,34 @@ func server() {
 				for _, msg := range rd.Messages {
 					buffer := pool.Get().([]byte)
 
+					if len(msg.Snapshot.Data) > 0 {
+						fmt.Printf("%d\n", len(msg.Snapshot.Data))
+					}
+
+					if !raft.IsEmptySnap(rd.Snapshot) {
+						fmt.Printf("Append snapshot to raft\n")
+					}
+
 					size, err := msg.MarshalTo(buffer[4:])
+
 					if err != nil {
 						log.Printf("Marshal error: %v", err)
 						continue
 					}
 
-					if size > 128 {
-						fmt.Printf("Message Type: %d, %s\n", size, msg.Type.String())
-					}
+					//fmt.Printf("Received proposal %v entries len=%d size=%d\n", msg, len(msg.Entries), size)
+					//fmt.Printf("Size :%d \n", size)
+					//if size > 51 {
+					//	fmt.Printf("Received proposal %v entries len=%d size=%d\n", msg, len(msg.Entries), size)
+					//}
+
 					//fmt.Printf("Send peer message: %d -> %d\n", msg.From, msg.To)
 					binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
-					//channel := s.writeChannels[msg.To-1][msg.Index%uint64(s.numPeerConnections)]
-					//channel <- ClientWrite{
-					//	&buffer,
-					//	bytes + 4,
-					//}
+
 					peerConnections[msg.To-1][atomic.AddUint32(&peerConnRoundRobins[msg.To-1], 1)%uint32(numPeerConnections)] <- WriteOp{
 						buffer,
 						uint32(size + 4),
 					}
-				}
-
-				if !raft.IsEmptySnap(rd.Snapshot) {
-					fmt.Printf("Append snapshot to raft\n")
 				}
 
 				for _, entry := range rd.Entries {
@@ -229,14 +242,6 @@ func server() {
 						panic(err)
 					}
 
-					//fmt.Printf("Received client request new index is: %d\n", nextIndex)
-
-					//senders.Store(nextIndex, &ClientRequest{
-					//	index:           nextIndex,
-					//	acks:            1,
-					//	writeChan: writeChan,
-					//})
-
 					messageId := atomic.AddUint32(&opIndex, 1)
 					bufferCopy := pool.Get().([]byte)
 					binary.LittleEndian.PutUint32(bufferCopy[:4], messageId)
@@ -297,60 +302,15 @@ func server() {
 						log.Printf("Unmarshal error: %v", err)
 						continue
 					}
-					if msg.From > 0 {
-						//fmt.Printf("Peer message %d -> %d, %d\n", msg.From, msg.To, msg.Index%uint64(s.numPeerConnections))
-						//fmt.Println("Putting into steps")
-						fmt.Printf("Received proposal %s\n", msg.Type)
-						//peerSteps[msg.From-1][atomic.AddUint32(&peerStepRoundRobins[msg.From-1], 1)%uint32(numPeerConnections)] <- msg
-						go func(msg raftpb.Message) {
-							err := node.Step(context.TODO(), msg)
-							if err != nil {
-								panic(err)
-							}
-						}(msg)
-					}
+					//if msg.From > 0 {
+					//fmt.Printf("Received proposal %v entries len=%d\n", msg, len(msg.Entries))
 
-					//op := readBuffer[0]
-					//index := binary.LittleEndian.Uint32(readBuffer[1:5])
-					//if op == OP_PROPOSE {
-					//	buffer := pool.Get().([]byte)
-					//	binary.LittleEndian.PutUint32(buffer[0:4], 5)
-					//	buffer[4] = OP_ACK
-					//	binary.LittleEndian.PutUint32(buffer[5:9], index)
-					//
-					//	//fmt.Printf("[%d -> %d] Received proposal for index: %d\n", peerIndex, nodeIndex, index)
-					//
-					//	peerConns := peerConnections[peerIndex]
-					//	nextPeer := atomic.AddUint32(&peerRoundRobins[peerIndex], 1) % uint32(numPeerConnections)
-					//
-					//	peerConns[nextPeer] <- WriteOp{
-					//		buffer: buffer,
-					//		size:   9,
-					//	}
-					//} else if op == OP_ACK {
-					//	senderAny, ok := senders.Load(index)
-					//	if !ok {
-					//		panic("Received ack late!")
-					//	}
-					//	request := senderAny.(*ClientRequest)
-					//
-					//	totalAcks := atomic.AddUint32(&request.acks, 1)
-					//	//fmt.Printf("Total acks vs numPeers: %d vs %d\n", totalAcks, numPeers)
-					//	if totalAcks == uint32(numPeers) {
-					//		//fmt.Printf("Responding to client for index: %d\n", index)
-					//		buffer := pool.Get().([]byte)
-					//		binary.LittleEndian.PutUint32(buffer[:4], 4)
-					//		request.writeChan <- WriteOp{
-					//			buffer: buffer,
-					//			size:   8,
-					//		}
-					//		senders.Delete(index)
-					//	} else {
-					//		//fmt.Printf("Received ack for index: %d\n", index)
-					//	}
-					//
-					//} else {
-					//	log.Panicf("GOT BAD OP: %d\n", op)
+					go func(msg raftpb.Message) {
+						err := node.Step(context.TODO(), msg)
+						if err != nil {
+							panic(err)
+						}
+					}(msg)
 					//}
 				}
 			}()
