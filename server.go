@@ -61,7 +61,7 @@ func server() {
 	pprofAddress := net.JoinHostPort(host, "6060")
 
 	go func() {
-		log.Println("Starting pprof server on :6060")
+		log.Printf("Starting pprof server on %s\n", pprofAddress)
 		log.Println(http.ListenAndServe(pprofAddress, nil))
 	}()
 
