@@ -12,6 +12,7 @@ import (
 )
 
 func client() {
+	fmt.Println("Starting client")
 	address := os.Args[2]
 	dataSize, err := strconv.Atoi(os.Args[3])
 	if err != nil {
@@ -30,6 +31,8 @@ func client() {
 
 	numClientOps := numOps / numClients
 
+	fmt.Println("Client operations:", numClientOps)
+
 	connections := make([]net.Conn, numClients)
 	for i := 0; i < numClients; i++ {
 		connection, err := net.Dial("tcp", address)
@@ -42,6 +45,8 @@ func client() {
 		}
 		connections[i] = connection
 	}
+
+	fmt.Printf("Connected to %d clients\n", numClients)
 	clientTimes := make([][]int, numClientOps)
 	group := sync.WaitGroup{}
 	group.Add(numClients)
@@ -56,6 +61,7 @@ func client() {
 				begin := time.Now().UnixMicro()
 
 				err := Write(connection, bytes)
+				fmt.Println("wrote out")
 				if err != nil {
 					panic(err)
 				}
@@ -108,5 +114,7 @@ func client() {
 	fmt.Printf("90th percentile %dus\n", times[int(float32(length)*0.9)])
 	fmt.Printf("100th percentile %dus\n", times[length-1])
 	fmt.Printf("[numClients=%d,numOps=%d,totalTime=%dms, ops=%d/s]", numClients, numOps, end-start, int(float32(numOps)/(float32(end-start)/1000.0)))
-	select {}
+	for {
+		time.Sleep(10 * time.Second)
+	}
 }
