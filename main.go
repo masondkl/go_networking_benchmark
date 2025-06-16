@@ -1,7 +1,9 @@
 package main
 
 import (
+	"log"
 	"net"
+	"net/http"
 	"os"
 )
 
@@ -38,6 +40,11 @@ type WriteOp struct {
 }
 
 func main() {
+	go func() {
+		log.Println("Starting pprof server on :6060")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	if os.Args[1] == "client" {
 		client()
 	} else {
