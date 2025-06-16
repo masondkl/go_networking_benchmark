@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -51,6 +52,18 @@ func server() {
 	peerListenAddress := os.Args[8]
 	clientListenAddress := os.Args[9]
 	peerAddresses := strings.Split(os.Args[10], ",")
+
+	host, _, err := net.SplitHostPort(peerListenAddress)
+	if err != nil {
+		panic(err)
+	}
+
+	pprofAddress := net.JoinHostPort(host, "6060")
+
+	go func() {
+		log.Println("Starting pprof server on :6060")
+		log.Println(http.ListenAndServe(pprofAddress, nil))
+	}()
 
 	var pool = sync.Pool{
 		New: func() interface{} {
