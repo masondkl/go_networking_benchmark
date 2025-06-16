@@ -114,7 +114,5 @@ func client() {
 	fmt.Printf("90th percentile %dus\n", times[int(float32(length)*0.9)])
 	fmt.Printf("100th percentile %dus\n", times[length-1])
 	fmt.Printf("[numClients=%d,numOps=%d,totalTime=%dms, ops=%d/s]", numClients, numOps, end-start, int(float32(numOps)/(float32(end-start)/1000.0)))
-	for {
-		time.Sleep(10 * time.Second)
-	}
+	select {}
 }
