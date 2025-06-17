@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
+	"golang.org/x/sync/errgroup"
 	"log"
 	"math"
 	"net"
@@ -17,9 +18,6 @@ import (
 	"testing"
 	"time"
 )
-
-const OP_PROPOSE = 0
-const OP_ACK = 1
 
 var (
 	nodeIndex           = flag.Int("node", 0, "node index")
@@ -33,14 +31,13 @@ var (
 	peerAddressesString = flag.String("peer-addresses", "", "comma-separated peer addresses")
 )
 
-//func TestMain(m *testing.M) {
-//	flag.Parse()
-//	m.Run()
-//}
-
 func TestServer(t *testing.T) {
 	flag.Parse()
-	ctx, cancel := context.WithCancel(context.Background())
+	g, ctx := errgroup.WithContext(context.Background())
+
+	if err := g.Wait(); err != nil {
+		t.Error(err)
+	}
 
 	var senders sync.Map
 	var opIndex uint32
@@ -64,18 +61,9 @@ func TestServer(t *testing.T) {
 	}
 	stored = nil
 
-	peerListener, err := net.Listen("tcp", *peerListenAddress)
-	if err != nil {
-		panic(err)
-	}
-
 	numPeers := len(peerAddresses)
-	//peerSteps := make([][]chan raftpb.Message, numPeers)
-	//peerProposes := make([][]chan WriteOp, numPeers)
 	peerConnections := make([][]chan WriteOp, numPeers)
 	peerConnRoundRobins := make([]uint32, numPeers)
-	//peerProposeRoundRobins := make([]uint32, numPeers)
-	//peerStepRoundRobins := make([]uint32, numPeers)
 
 	storage := raft.NewMemoryStorage()
 	config := &raft.Config{
@@ -94,293 +82,307 @@ func TestServer(t *testing.T) {
 
 	node := raft.StartNode(config, peers)
 
-	connectGroup := sync.WaitGroup{}
-	connectGroup.Add((numPeers - 1) * *numPeerConnections)
+	fmt.Println("Started node!")
+	g.Go(func() error {
+		return handleClients(ctx, g, &pool, node, &senders, opIndex, *clientWriteChanSize)
+	})
+	fmt.Println("Started client listener!")
+	g.Go(func() error {
+		return handlePeers(ctx, g, node)
+	})
+	fmt.Println("Started peer listener!")
 
-	ticker := time.NewTicker(150 * time.Millisecond)
-	defer ticker.Stop()
-	go func() {
-		connectGroup.Wait()
+	connectPeers(ctx, t, g, peerAddresses, peerConnections, peerConnRoundRobins, &pool)
+	fmt.Println("All peers connected!")
+
+	g.Go(func() error {
+		return runRaftNode(ctx, node, config, peerConnections, peerConnRoundRobins, storage, &pool, &senders)
+	})
+
+	if err := g.Wait(); err != nil {
+		t.Fatalf("Server error: %v", err)
+	}
+}
+
+func handleClients(
+	ctx context.Context,
+	g *errgroup.Group,
+	pool *sync.Pool,
+	node raft.Node,
+	senders *sync.Map,
+	opIndex uint32,
+	clientWriteChanSize int,
+) error {
+	clientListener, err := net.Listen("tcp", *clientListenAddress)
+	if err != nil {
+		return fmt.Errorf("error listening on client: %w", err)
+	}
+
+	g.Go(func() error {
+		<-ctx.Done()
+		clientListener.Close()
+		return nil
+	})
+
+	g.Go(func() error {
+		defer clientListener.Close()
+
 		for {
 			select {
-			case <-ticker.C:
-				node.Tick()
-			case rd := <-node.Ready():
-				//fmt.Printf("Commited entries: %d\n", len(rd.CommittedEntries))
-				if !raft.IsEmptyHardState(rd.HardState) {
-					//fmt.Printf("Setting hardstate\n")
-					err := storage.SetHardState(rd.HardState)
-					if err != nil {
-						panic(err)
+			case <-ctx.Done():
+				return nil
+			default:
+				conn, err := clientListener.Accept()
+				if err != nil {
+					if ctx.Err() != nil {
+						return nil
 					}
+					return fmt.Errorf("error accepting client: %w", err)
 				}
 
-				if len(rd.Entries) > 0 {
-					if err := storage.Append(rd.Entries); err != nil {
-						log.Printf("Append entries error: %v", err)
-					}
+				if tcpConn, ok := conn.(*net.TCPConn); ok {
+					tcpConn.SetNoDelay(true)
+					tcpConn.SetKeepAlive(true)
+					tcpConn.SetKeepAlivePeriod(30 * time.Second)
 				}
 
-				// TODO("Fix peer sending msgs")
-				for _, msg := range rd.Messages {
-					buffer := pool.Get().([]byte)
+				writeChan := make(chan WriteOp, clientWriteChanSize)
 
-					if len(msg.Snapshot.Data) > 0 {
-						fmt.Printf("%d\n", len(msg.Snapshot.Data))
-					}
-
-					if !raft.IsEmptySnap(rd.Snapshot) {
-						fmt.Printf("Append snapshot to raft\n")
-					}
-
-					requiredSize := 4 + msg.Size()
-					if len(buffer) < requiredSize {
-						buffer = append(buffer, make([]byte, requiredSize)...)
-					}
-
-					size, err := msg.MarshalTo(buffer[4:])
-
-					if err != nil {
-						log.Printf("Marshal error: %v", err)
-						continue
-					}
-
-					//fmt.Printf("Received proposal %v entries len=%d size=%d\n", msg, len(msg.Entries), size)
-					//fmt.Printf("Size :%d \n", size)
-					//if size > 51 {
-					//	fmt.Printf("Received proposal %v entries len=%d size=%d\n", msg, len(msg.Entries), size)
-					//}
-
-					//fmt.Printf("Send peer message: %d -> %d\n", msg.From, msg.To)
-					binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
-
-					peerConnections[msg.To-1][atomic.AddUint32(&peerConnRoundRobins[msg.To-1], 1)%uint32(*numPeerConnections)] <- WriteOp{
-						buffer,
-						uint32(size + 4),
-					}
-				}
-
-				for _, entry := range rd.Entries {
-					switch entry.Type {
-					case raftpb.EntryConfChange:
-						var cc raftpb.ConfChange
-						if err := cc.Unmarshal(entry.Data); err != nil {
-							log.Printf("Unmarshal conf change error: %v", err)
-							continue
-						}
-						node.ApplyConfChange(cc)
-					case raftpb.EntryNormal:
-						if len(entry.Data) >= 4 && node.Status().Lead == config.ID {
-							index := binary.LittleEndian.Uint32(entry.Data[:4])
-
-							buffer := pool.Get().([]byte)
-							//Write 0 bytes
-							binary.BigEndian.PutUint32(buffer[:4], 0)
-
-							senderAny, ok := senders.LoadAndDelete(index)
-							if ok {
-								request := senderAny.(ClientRequest)
-								pool.Put(request.buffer)
-								select {
-								case request.writeChan <- WriteOp{buffer, 4}:
-								default:
-									log.Printf("Client write channel is full, dropping message?")
-								}
-								//fmt.Printf("Committing %d\n", messageId)
-							} else {
-								log.Panicf("PROBLEM LOADING SENDER FOR %d", index)
+				g.Go(func() error {
+					defer close(writeChan)
+					for {
+						select {
+						case <-ctx.Done():
+							return nil
+						case writeOp, ok := <-writeChan:
+							if !ok {
+								return nil
+							}
+							defer pool.Put(writeOp)
+							if err := Write(conn, writeOp.buffer[:writeOp.size]); err != nil {
+								return fmt.Errorf("error writing to client: %w", err)
 							}
 						}
 					}
-				}
-				node.Advance()
+				})
+
+				g.Go(func() error {
+					readBuffer := make([]byte, 1000000)
+					for {
+						select {
+						case <-ctx.Done():
+							return g.Wait()
+						default:
+							if err := Read(conn, readBuffer[:4]); err != nil {
+								return fmt.Errorf("error reading client: %w", err)
+							}
+
+							amount := binary.LittleEndian.Uint32(readBuffer[:4])
+
+							if err := Read(conn, readBuffer[:amount]); err != nil {
+								return fmt.Errorf("error reading client: %w", err)
+							}
+
+							messageId := atomic.AddUint32(&opIndex, 1)
+							bufferCopy := pool.Get().([]byte)
+							binary.LittleEndian.PutUint32(bufferCopy[:4], messageId)
+							copy(bufferCopy[4:amount+4], readBuffer[:amount])
+							senders.Store(messageId, ClientRequest{writeChan, bufferCopy})
+
+							g.Go(func() error {
+								if err := node.Propose(context.TODO(), bufferCopy[:amount+4]); err != nil {
+									senders.Delete(messageId)
+									pool.Put(bufferCopy)
+									return fmt.Errorf("error proposing client: %w", err)
+								}
+								return nil
+							})
+						}
+					}
+				})
 			}
 		}
-	}()
+	})
 
-	go func() {
-		clientListener, err := net.Listen("tcp", *clientListenAddress)
-		if err != nil {
-			panic(err)
-		}
+	return nil
+}
+
+func handlePeers(
+	ctx context.Context,
+	g *errgroup.Group,
+	node raft.Node,
+) error {
+	peerListener, err := net.Listen("tcp", *peerListenAddress)
+	if err != nil {
+		return fmt.Errorf("peer listener failed: %w", err)
+	}
+
+	fmt.Println("Starting peer listener!")
+
+	g.Go(func() error {
+		<-ctx.Done()
+		fmt.Println("Closjng!")
+		peerListener.Close()
+		return nil
+	})
+
+	g.Go(func() error {
+		fmt.Println("In here!")
+		defer peerListener.Close()
 
 		for {
-			connection, err := clientListener.Accept()
-			if err != nil {
-				panic(err)
-			}
-
-			err = connection.(*net.TCPConn).SetNoDelay(true)
-			if err != nil {
-				panic(err)
-			}
-
-			writeChan := make(chan WriteOp, *clientWriteChanSize)
-			go func() {
-				defer func() {
-					err := connection.Close()
-					if err != nil {
-						panic(err)
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+				fmt.Println("Waiting for peer to connect...")
+				conn, err := peerListener.Accept()
+				if err != nil {
+					if ctx.Err() != nil {
+						return nil
 					}
-					close(writeChan)
-				}()
-
-				for clientWrite := range writeChan {
-					err := Write(connection, clientWrite.buffer[:clientWrite.size])
-					if err != nil {
-						panic(err)
-					}
-					pool.Put(clientWrite.buffer)
+					return fmt.Errorf("peer accept failed: %w", err)
 				}
-			}()
 
-			go func() {
-				readBuffer := make([]byte, 1000000)
+				fmt.Println("Got a connection ay?")
 
-				for {
-					if err := Read(connection, readBuffer[:4]); err != nil {
-						fmt.Printf("Read error: %v\n", err)
-						cancel()
-					}
+				if tcpConn, ok := conn.(*net.TCPConn); ok {
+					tcpConn.SetNoDelay(true)
+					tcpConn.SetKeepAlive(true)
+					tcpConn.SetKeepAlivePeriod(30 * time.Second)
+				}
 
-					amount := binary.LittleEndian.Uint32(readBuffer[:4])
+				bytes := make([]byte, 4)
+				err = Read(conn, bytes)
+				if err != nil {
+					return err
+				}
+				peerIndex := binary.LittleEndian.Uint32(bytes)
+				fmt.Printf("Got connection from peer %d\n", peerIndex)
 
-					if err := Read(connection, readBuffer[:amount]); err != nil {
-						log.Printf("Error reading message: %v", err)
-						panic(err)
-					}
+				g.Go(func() error {
+					//defer conn.Close()
+					readBuffer := make([]byte, 1024*1024)
+					for {
+						select {
+						case <-ctx.Done():
+							return nil
+						default:
+							err := Read(conn, readBuffer[:4])
+							if err != nil {
+								return err
+							}
 
-					messageId := atomic.AddUint32(&opIndex, 1)
-					bufferCopy := pool.Get().([]byte)
-					binary.LittleEndian.PutUint32(bufferCopy[:4], messageId)
-					copy(bufferCopy[4:amount+4], readBuffer[:amount])
-					senders.Store(messageId, ClientRequest{writeChan, bufferCopy})
+							amount := binary.LittleEndian.Uint32(readBuffer[:4])
 
-					go func(buffer []byte) {
-						err := node.Propose(context.TODO(), buffer[:amount+4])
-						if err != nil {
-							panic(err)
+							err = Read(conn, readBuffer[:amount])
+							if err != nil {
+								return err
+							}
+
+							var msg raftpb.Message
+							if err := msg.Unmarshal(readBuffer[:amount]); err != nil {
+								return err
+							}
+
+							g.Go(func() error {
+								err := node.Step(ctx, msg)
+								if err != nil {
+									return err
+								}
+								return nil
+							})
 						}
-					}(bufferCopy)
-				}
-			}()
+					}
+				})
+			}
 		}
-	}()
+	})
 
-	go func() {
-		for {
-			connection, err := peerListener.Accept()
-			if err != nil {
-				panic(err)
-			}
+	return nil
+}
 
-			err = connection.(*net.TCPConn).SetNoDelay(true)
-			if err != nil {
-				panic(err)
-			}
-
-			bytes := make([]byte, 4)
-			err = Read(connection, bytes)
-			if err != nil {
-				panic(err)
-			}
-			peerIndex := binary.LittleEndian.Uint32(bytes)
-			fmt.Printf("Got connection from peer %d\n", peerIndex)
-
-			go func() {
-				connectGroup.Wait()
-				readBuffer := make([]byte, 1000000)
-				for {
-					err := Read(connection, readBuffer[:4])
-					if err != nil {
-						panic(err)
-					}
-
-					amount := binary.LittleEndian.Uint32(readBuffer[:4])
-
-					err = Read(connection, readBuffer[:amount])
-					if err != nil {
-						panic(err)
-					}
-
-					// TODO("replace with raft step and marshal")
-
-					var msg raftpb.Message
-					if err := msg.Unmarshal(readBuffer[:amount]); err != nil {
-						log.Printf("Unmarshal error: %v", err)
-						continue
-					}
-					//if msg.From > 0 {
-					//fmt.Printf("Received proposal %v entries len=%d\n", msg, len(msg.Entries))
-
-					go func(msg raftpb.Message) {
-						err := node.Step(context.TODO(), msg)
-						if err != nil {
-							panic(err)
-						}
-					}(msg)
-					//}
-				}
-			}()
-		}
-	}()
-
-	for p := range numPeers {
+func connectPeers(
+	ctx context.Context,
+	t *testing.T,
+	g *errgroup.Group,
+	peerAddresses []string,
+	peerConnections [][]chan WriteOp,
+	peerConnRoundRobins []uint32,
+	pool *sync.Pool,
+) {
+	for p := range len(peerAddresses) {
 		if p == *nodeIndex {
 			fmt.Printf("Skipping it because its %d\n", p)
 			continue
 		}
 		peerConnRoundRobins[p] = 0
 		peerConnections[p] = make([]chan WriteOp, *numPeerConnections)
+		fmt.Printf("Connecting peer %s\n", peerAddresses[p])
 		for c := range *numPeerConnections {
 			for {
 				connection, err := net.Dial("tcp", peerAddresses[p])
 				if err != nil {
+					time.Sleep(50 * time.Millisecond)
 					continue
 				}
 
-				err = connection.(*net.TCPConn).SetNoDelay(true)
-				if err != nil {
-					panic(err)
-				}
-
+				//if tcpConn, ok := connection.(*net.TCPConn); ok {
+				//	tcpConn.SetNoDelay(true)
+				//	tcpConn.SetKeepAlive(true)
+				//	tcpConn.SetKeepAlivePeriod(30 * time.Second)
+				//}
 				bytes := make([]byte, 4)
 				binary.LittleEndian.PutUint32(bytes, uint32(*nodeIndex))
 				err = Write(connection, bytes)
 				if err != nil {
-					panic(err)
+					t.Fatal(err)
 				}
 
 				writeChan := make(chan WriteOp, *peerWriteChanSize)
 				peerConnections[p][c] = writeChan
-				go func() {
-					defer func() {
-						err := connection.Close()
-						if err != nil {
-							panic(err)
-						}
-						close(writeChan)
-					}()
+				g.Go(func() error {
+					defer connection.Close()
+					defer close(writeChan)
 
-					for clientWrite := range writeChan {
-						err := Write(connection, clientWrite.buffer[:clientWrite.size])
-						if err != nil {
-							panic(err)
+					for {
+						select {
+						case <-ctx.Done():
+							return nil
+						case writeOp, ok := <-writeChan:
+							if !ok {
+								return nil
+							}
+							if err := Write(connection, writeOp.buffer[:writeOp.size]); err != nil {
+								return fmt.Errorf("peer write failed: %w", err)
+							}
+							pool.Put(writeOp.buffer)
 						}
-						pool.Put(clientWrite.buffer)
 					}
-				}()
-
-				connectGroup.Done()
+				})
 				break
 			}
 		}
 	}
+}
+
+func runRaftNode(
+	ctx context.Context,
+	node raft.Node,
+	config *raft.Config,
+	peerConnections [][]chan WriteOp,
+	peerConnRoundRobins []uint32,
+	storage *raft.MemoryStorage,
+	pool *sync.Pool,
+	senders *sync.Map,
+) error {
+	ticker := time.NewTicker(150 * time.Millisecond)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			break
+			return nil
 		case <-ticker.C:
 			node.Tick()
 		case rd := <-node.Ready():
@@ -389,17 +391,16 @@ func TestServer(t *testing.T) {
 				//fmt.Printf("Setting hardstate\n")
 				err := storage.SetHardState(rd.HardState)
 				if err != nil {
-					panic(err)
+					return err
 				}
 			}
 
 			if len(rd.Entries) > 0 {
 				if err := storage.Append(rd.Entries); err != nil {
-					log.Printf("Append entries error: %v", err)
+					return err
 				}
 			}
 
-			// TODO("Fix peer sending msgs")
 			for _, msg := range rd.Messages {
 				buffer := pool.Get().([]byte)
 
@@ -419,17 +420,9 @@ func TestServer(t *testing.T) {
 				size, err := msg.MarshalTo(buffer[4:])
 
 				if err != nil {
-					log.Printf("Marshal error: %v", err)
-					continue
+					return err
 				}
 
-				//fmt.Printf("Received proposal %v entries len=%d size=%d\n", msg, len(msg.Entries), size)
-				//fmt.Printf("Size :%d \n", size)
-				//if size > 51 {
-				//	fmt.Printf("Received proposal %v entries len=%d size=%d\n", msg, len(msg.Entries), size)
-				//}
-
-				//fmt.Printf("Send peer message: %d -> %d\n", msg.From, msg.To)
 				binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
 
 				peerConnections[msg.To-1][atomic.AddUint32(&peerConnRoundRobins[msg.To-1], 1)%uint32(*numPeerConnections)] <- WriteOp{
@@ -443,8 +436,7 @@ func TestServer(t *testing.T) {
 				case raftpb.EntryConfChange:
 					var cc raftpb.ConfChange
 					if err := cc.Unmarshal(entry.Data); err != nil {
-						log.Printf("Unmarshal conf change error: %v", err)
-						continue
+						return err
 					}
 					node.ApplyConfChange(cc)
 				case raftpb.EntryNormal:
@@ -474,5 +466,4 @@ func TestServer(t *testing.T) {
 			node.Advance()
 		}
 	}
-	fmt.Printf("And were done!")
 }
