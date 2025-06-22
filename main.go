@@ -3,6 +3,7 @@ package main
 import (
 	"net"
 	"os"
+	"sync"
 )
 
 func Read(connection net.Conn, buffer []byte) error {
@@ -28,14 +29,21 @@ func Write(connection net.Conn, buffer []byte) error {
 }
 
 type ClientRequest struct {
-	writeChan chan WriteOp
-	buffer    []byte
+	connection *net.Conn
+	writeLock  *sync.Mutex
+	//writeChan chan WriteOp
+	buffer []byte
 }
 
-type WriteOp struct {
-	buffer []byte
-	size   uint32
+type PeerConnection struct {
+	connection *net.Conn
+	writeLock  *sync.Mutex
 }
+
+//type WriteOp struct {
+//	buffer []byte
+//	size   uint32
+//}
 
 func main() {
 	if os.Args[1] == "client" {
