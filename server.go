@@ -346,6 +346,10 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	}
 }
 
+func marshalMessage(msg raftpb.Message, buffer []byte) (int, error) {
+	return msg.MarshalTo(buffer[4:])
+}
+
 func (s *Server) sendMessageToPeer(msg raftpb.Message) {
 	buffer := s.pool.Get().([]byte)
 
@@ -358,10 +362,9 @@ func (s *Server) sendMessageToPeer(msg raftpb.Message) {
 		buffer = make([]byte, requiredSize)
 	}
 
-	size, err := msg.MarshalTo(buffer[4:])
+	size, err := marshalMessage(msg, buffer[4:])
 	if err != nil {
 		log.Printf("Marshal error: %v", err)
-		s.pool.Put(buffer)
 		return
 	}
 
