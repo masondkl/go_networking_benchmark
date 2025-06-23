@@ -72,7 +72,7 @@ func (s *Server) setupRaft() {
 		HeartbeatTick:   5,
 		Storage:         s.storage,
 		MaxSizePerMsg:   math.MaxUint32,
-		MaxInflightMsgs: 1000000,
+		MaxInflightMsgs: 5000000,
 	}
 
 	fmt.Printf("Peer addresses: %v\n", s.peerAddresses)
@@ -398,7 +398,7 @@ func (s *Server) processReady(rd raft.Ready) {
 }
 
 func (s *Server) run() {
-	ticker := time.NewTicker(150 * time.Millisecond)
+	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
