@@ -68,11 +68,11 @@ func (s *Server) setupRaft() {
 	s.storage = raft.NewMemoryStorage()
 	s.config = &raft.Config{
 		ID:              uint64(*nodeIndex + 1),
-		ElectionTick:    150,
-		HeartbeatTick:   10,
+		ElectionTick:    10,
+		HeartbeatTick:   5,
 		Storage:         s.storage,
 		MaxSizePerMsg:   math.MaxUint32,
-		MaxInflightMsgs: 5000000,
+		MaxInflightMsgs: 1000000,
 	}
 
 	fmt.Printf("Peer addresses: %v\n", s.peerAddresses)
@@ -398,7 +398,7 @@ func (s *Server) processReady(rd raft.Ready) {
 }
 
 func (s *Server) run() {
-	ticker := time.NewTicker(15 * time.Millisecond)
+	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
