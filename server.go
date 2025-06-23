@@ -256,6 +256,10 @@ func server() {
 	}()
 
 	for p := range numPeers {
+		if p == *nodeIndex {
+			fmt.Printf("Skipping it because its %d\n", p)
+			continue
+		}
 		peerConnRoundRobins[p] = 0
 		peerConnections[p] = make([]PeerConnection, *numPeerConnections)
 		for c := range *numPeerConnections {

@@ -48,5 +48,7 @@ type PeerConnection struct {
 func main() {
 	if os.Args[1] == "client" {
 		client()
+	} else {
+		server()
 	}
 }

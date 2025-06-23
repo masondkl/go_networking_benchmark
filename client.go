@@ -61,7 +61,6 @@ func client() {
 				begin := time.Now().UnixMicro()
 
 				err := Write(connection, bytes)
-				fmt.Println("wrote out")
 				if err != nil {
 					panic(err)
 				}
