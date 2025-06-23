@@ -8,4 +8,8 @@ client 127.0.0.1:7000 1 1000000 10
 ./networking_benchmark server 0 1500 1000000 10 1000000 1000000 10.10.1.1:6900 10.10.1.1:7000 10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900
 ./networking_benchmark server 1 1500 1000000 10 1000000 1000000 10.10.1.2:6900 10.10.1.2:7000 10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900
 ./networking_benchmark server 2 1500 1000000 10 1000000 1000000 10.10.1.3:6900 10.10.1.3:7000 10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900
-./networking_benchmark client 10.10.1.1:7000 1 1000000 100
+./networking_benchmark client 10.10.1.2:7000 1 5000000 100
+
+-node=0 -pool-data-size=2000 -pool-warmup-size=100000 -peer-connections=1 -peer-listen="10.10.1.1:6900" -client-listen="10.10.1.1:7000" -peer-addresses="10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900"
+-node=1 -pool-data-size=2000 -pool-warmup-size=100000 -peer-connections=1 -peer-listen="10.10.1.2:6900" -client-listen="10.10.1.2:7000" -peer-addresses="10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900"
+-node=2 -pool-data-size=2000 -pool-warmup-size=100000 -peer-connections=1 -peer-listen="10.10.1.3:6900" -client-listen="10.10.1.3:7000" -peer-addresses="10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900"

@@ -468,6 +468,7 @@ func startProfiling() {
 			f.Close()
 			log.Printf("%s profile written", prof)
 		}
+		os.Exit(1)
 	}()
 }
 
