@@ -347,7 +347,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 }
 
 func marshalMessage(msg raftpb.Message, buffer []byte) (int, error) {
-	return msg.MarshalTo(buffer[4:])
+	return msg.MarshalTo(buffer)
 }
 
 func (s *Server) sendMessageToPeer(msg raftpb.Message) {
