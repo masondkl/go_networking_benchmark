@@ -477,6 +477,6 @@ func startProfiling() {
 
 func server() {
 	flag.Parse()
-	startProfiling()
+	// startProfiling()
 	NewServer().run()
 }
