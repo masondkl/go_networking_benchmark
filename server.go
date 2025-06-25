@@ -219,7 +219,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 	peerIndex := binary.LittleEndian.Uint32(bytes)
 	log.Printf("Got connection from peer %d", peerIndex)
 
-	readBuffer := make([]byte, 1000000)
+	readBuffer := make([]byte, 10000000)
 	for {
 		if err := Read(conn, readBuffer[:4]); err != nil {
 			return
