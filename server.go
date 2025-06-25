@@ -226,6 +226,11 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		}
 
 		amount := binary.LittleEndian.Uint32(readBuffer[:4])
+		if cap(readBuffer) < int(amount) {
+			readBuffer = append(readBuffer, make([]byte, int(amount)-cap(readBuffer))...)
+			readBuffer = readBuffer[:cap(readBuffer)]
+		}
+
 		if err := Read(conn, readBuffer[:amount]); err != nil {
 			return
 		}
@@ -358,8 +363,8 @@ func (s *Server) sendMessageToPeer(msg raftpb.Message) {
 	}
 
 	requiredSize := 4 + msg.Size()
-	if len(buffer) < requiredSize {
-		buffer = make([]byte, requiredSize)
+	if cap(buffer) < requiredSize {
+		buffer = append(buffer, make([]byte, requiredSize-len(buffer))...)
 	}
 
 	size, err := marshalMessage(msg, buffer[4:])
