@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,7 @@ var (
 	peerListenAddress   = flag.String("peer-listen", "", "peer listen address")
 	clientListenAddress = flag.String("client-listen", "", "client listen address")
 	peerAddressesString = flag.String("peer-addresses", "", "comma-separated peer addresses")
+	walFileCount        = flag.Int("wal-file-count", 0, "wal file count")
 )
 
 type Server struct {
@@ -43,10 +45,17 @@ type Server struct {
 	peerConnections     [][]PeerConnection
 	peerConnRoundRobins []uint32
 	shutdownChan        chan struct{}
+	hardstateChan       chan []byte
+	walChans            []chan []byte
+	walGroups           []*sync.WaitGroup
+	hardstateGroup      sync.WaitGroup
 	isLeader            bool
 }
 
 func (s *Server) initPool() {
+	if *poolDataSize%4096 != 0 {
+		fmt.Println("Pool data size is not a multiple of 4096 block size")
+	}
 	s.pool = sync.Pool{
 		New: func() interface{} {
 			return make([]byte, *poolDataSize)
@@ -86,7 +95,7 @@ func (s *Server) setupRaft() {
 	s.node = raft.StartNode(s.config, peers)
 
 	go func() {
-		time.Sleep(time.Second * 15)
+		time.Sleep(time.Second * 5)
 		if s.node.Status().Lead == s.config.ID {
 			fmt.Printf("Node is leader\n")
 			s.isLeader = true
@@ -95,7 +104,6 @@ func (s *Server) setupRaft() {
 			s.isLeader = false
 		}
 	}()
-
 }
 
 func (s *Server) connectToPeer(peerIdx, connIdx int) {
@@ -171,7 +179,6 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 	binary.LittleEndian.PutUint32(bufferCopy[:4], messageId)
 	copy(bufferCopy[4:len(data)+4], data)
 	s.senders.Store(messageId, ClientRequest{&conn, writeLock, bufferCopy})
-
 	go func() {
 		if err := s.node.Propose(context.TODO(), bufferCopy[:len(data)+4]); err != nil {
 			panic(err)
@@ -285,9 +292,15 @@ func (s *Server) startPeerListener() {
 
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
-		if err := s.storage.SetHardState(hs); err != nil {
+		buffer := s.pool.Get().([]byte)
+		_, err := hs.MarshalTo(buffer)
+		if err != nil {
 			panic(err)
 		}
+		//TODO: maybe move this to processEntries and write it alongside wal file 0
+		//s.hardstateGroup.Add(1)
+		//s.hardstateChan <- buffer
+		//s.hardstateGroup.Wait()
 	}
 }
 
@@ -297,7 +310,17 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			log.Printf("Append entries error: %v", err)
 		}
 	}
+	for _, entry := range entries {
+		switch entry.Type {
+		case raftpb.EntryConfChange:
 
+		case raftpb.EntryNormal:
+
+		}
+	}
+}
+
+func (s *Server) processCommittedEntries(entries []raftpb.Entry) {
 	for _, entry := range entries {
 		switch entry.Type {
 		case raftpb.EntryConfChange:
@@ -397,6 +420,7 @@ func (s *Server) processSnapshot(snap raftpb.Snapshot) {
 func (s *Server) processReady(rd raft.Ready) {
 	s.processHardState(rd.HardState)
 	s.processEntries(rd.Entries)
+	s.processCommittedEntries(rd.CommittedEntries)
 	s.processMessages(rd.Messages)
 	s.processSnapshot(rd.Snapshot)
 	s.node.Advance()
@@ -424,12 +448,71 @@ func (s *Server) Shutdown() {
 
 func NewServer() *Server {
 	s := &Server{
-		peerAddresses: strings.Split(*peerAddressesString, ","),
-		shutdownChan:  make(chan struct{}),
+		peerAddresses:  strings.Split(*peerAddressesString, ","),
+		shutdownChan:   make(chan struct{}),
+		walChans:       make([]chan []byte, *walFileCount),
+		walGroups:      make([]*sync.WaitGroup, *walFileCount),
+		hardstateChan:  make(chan []byte, 100000),
+		hardstateGroup: sync.WaitGroup{},
 	}
 
 	s.initPool()
 	s.warmupPool()
+
+	for i := range *walFileCount {
+		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|syscall.O_DIRECT|syscall.O_SYNC, 0644)
+		if err != nil {
+			panic(err)
+		}
+		c := make(chan []byte, 100000)
+		g := &sync.WaitGroup{}
+		s.walChans[i] = c
+		s.walGroups[i] = g
+		go func(index int, file *os.File, channel chan []byte, group *sync.WaitGroup) {
+			for {
+				select {
+				case bytes := <-channel:
+					_, err := file.WriteAt(bytes, 0)
+					if err != nil {
+						panic(err)
+					}
+					err = syscall.Fsync(int(file.Fd()))
+					if err != nil {
+						fmt.Println("Error fsyncing file: ", err)
+						return
+					}
+					group.Done()
+				default:
+				}
+			}
+		}(i, f, c, g)
+	}
+
+	//f, err := os.OpenFile("hardstate", os.O_CREATE|os.O_RDWR|syscall.O_SYNC, 0644)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//go func(file *os.File, channel chan []byte) {
+	//	fmt.Println("Listening on hardstate chan")
+	//	for {
+	//		select {
+	//		case bytes := <-channel:
+	//			_, err = file.WriteAt(bytes, 0)
+	//			if err != nil {
+	//				panic(err)
+	//			}
+	//			err = syscall.Fsync(int(file.Fd()))
+	//			if err != nil {
+	//				fmt.Println("Error fsyncing file: ", err)
+	//				return
+	//			}
+	//			s.pool.Put(bytes)
+	//			s.hardstateGroup.Done()
+	//		default:
+	//		}
+	//	}
+	//}(f, s.hardstateChan)
+
 	s.setupRaft()
 	go s.startPeerListener()
 	go s.startClientListener()
