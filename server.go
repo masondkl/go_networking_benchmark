@@ -95,7 +95,7 @@ func (s *Server) setupRaft() {
 	s.node = raft.StartNode(s.config, peers)
 
 	go func() {
-		time.Sleep(time.Second * 5)
+		time.Sleep(time.Second * 15)
 		if s.node.Status().Lead == s.config.ID {
 			fmt.Printf("Node is leader\n")
 			s.isLeader = true
@@ -419,10 +419,10 @@ func (s *Server) processSnapshot(snap raftpb.Snapshot) {
 
 func (s *Server) processReady(rd raft.Ready) {
 	s.processHardState(rd.HardState)
+	s.processSnapshot(rd.Snapshot)
+	s.processMessages(rd.Messages)
 	s.processEntries(rd.Entries)
 	s.processCommittedEntries(rd.CommittedEntries)
-	s.processMessages(rd.Messages)
-	s.processSnapshot(rd.Snapshot)
 	s.node.Advance()
 }
 
@@ -460,7 +460,7 @@ func NewServer() *Server {
 	s.warmupPool()
 
 	for i := range *walFileCount {
-		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|syscall.O_DIRECT|syscall.O_SYNC, 0644)
+		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|syscall.O_SYNC, 0644)
 		if err != nil {
 			panic(err)
 		}
