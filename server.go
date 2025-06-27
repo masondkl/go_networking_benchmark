@@ -428,10 +428,10 @@ func (s *Server) processSnapshot(snap raftpb.Snapshot) {
 
 func (s *Server) processReady(rd raft.Ready) {
 	s.processHardState(rd.HardState)
+	s.processSnapshot(rd.Snapshot)
+	s.processMessages(rd.Messages)
 	s.processEntries(rd.Entries)
 	s.processCommittedEntries(rd.CommittedEntries)
-	s.processMessages(rd.Messages)
-	s.processSnapshot(rd.Snapshot)
 	s.node.Advance()
 }
 
