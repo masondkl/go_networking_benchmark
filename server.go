@@ -32,7 +32,14 @@ var (
 	clientListenAddress = flag.String("client-listen", "", "client listen address")
 	peerAddressesString = flag.String("peer-addresses", "", "comma-separated peer addresses")
 	walFileCount        = flag.Int("wal-file-count", 0, "wal file count")
+	manual              = flag.String("manual", "none", "fsync, dsync, or none")
+	flags               = flag.String("flags", "none", "fsync, dsync, sync, none")
 )
+
+type WalSlot struct {
+	file  *os.File
+	mutex *sync.Mutex
+}
 
 type Server struct {
 	senders             sync.Map
@@ -46,8 +53,8 @@ type Server struct {
 	peerConnRoundRobins []uint32
 	shutdownChan        chan struct{}
 	hardstateChan       chan []byte
-	walLocks            []*sync.Mutex
-	walFiles            []*os.File
+
+	walSlots []WalSlot
 	//walChans            []chan []byte
 	//walGroup            *sync.WaitGroup
 	hardstateGroup sync.WaitGroup
@@ -316,13 +323,39 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 	group.Add(len(entries))
 	for _, e := range entries {
 		go func(entry raftpb.Entry) {
-			fileIndex := entry.Index % uint64(*walFileCount)
-			s.walLocks[fileIndex].Lock()
-			_, err := s.walFiles[fileIndex].WriteAt(entry.Data, 0)
+			buffer := s.pool.Get().([]byte)
+			size, err := entry.MarshalTo(buffer)
 			if err != nil {
 				panic(err)
 			}
-			s.walLocks[fileIndex].Unlock()
+			walIndex := entry.Index % uint64(*walFileCount)
+			slot := s.walSlots[walIndex]
+			slot.mutex.Lock()
+			count := int64(0)
+			for {
+				wrote, err := slot.file.WriteAt(buffer[count:size], count)
+				if err != nil {
+					panic(err)
+				}
+				count += int64(wrote)
+				if count == int64(size) {
+					break
+				}
+			}
+			if *manual == "fsync" {
+				err = syscall.Fsync(int(slot.file.Fd()))
+				if err != nil {
+					fmt.Println("Error fsyncing file: ", err)
+					return
+				}
+			} else if *manual == "dsync" {
+				err = syscall.Fdatasync(int(slot.file.Fd()))
+				if err != nil {
+					fmt.Println("Error fsyncing file: ", err)
+					return
+				}
+			}
+			slot.mutex.Unlock()
 			group.Done()
 		}(e)
 	}
@@ -460,11 +493,7 @@ func NewServer() *Server {
 		peerAddresses: strings.Split(*peerAddressesString, ","),
 		shutdownChan:  make(chan struct{}),
 
-		//walChans:       make([]chan []byte, *walFileCount),
-		//walGroup:       &sync.WaitGroup{},
-
-		walLocks: make([]*sync.Mutex, *walFileCount),
-		walFiles: make([]*os.File, *walFileCount),
+		walSlots: make([]WalSlot, *walFileCount),
 
 		hardstateChan:  make(chan []byte, 100000),
 		hardstateGroup: sync.WaitGroup{},
@@ -474,55 +503,20 @@ func NewServer() *Server {
 	s.warmupPool()
 
 	for i := range *walFileCount {
-		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|syscall.O_DSYNC, 0644)
+		fileFlags := 0
+		if *flags == "fsync" {
+			fileFlags = syscall.O_FSYNC
+		} else if *flags == "dsync" {
+			fileFlags = syscall.O_DSYNC
+		} else if *flags == "sync" {
+			fileFlags = syscall.O_SYNC
+		}
+		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|fileFlags, 0644)
 		if err != nil {
 			panic(err)
 		}
-		s.walLocks[i] = &sync.Mutex{}
-		s.walFiles[i] = f
-		//go func(index int, file *os.File, channel chan []byte, group *sync.WaitGroup) {
-		//	for {
-		//		select {
-		//		case bytes := <-channel:
-		//			_, err := file.WriteAt(bytes, 0)
-		//			if err != nil {
-		//				panic(err)
-		//			}
-		//			group.Done()
-		//			//err = syscall.Fsync(int(file.Fd()))
-		//			//if err != nil {
-		//			//	fmt.Println("Error fsyncing file: ", err)
-		//			//	return
-		//			//}
-		//		}
-		//	}
-		//}(i, f, c, s.walGroup)
+		s.walSlots[i] = WalSlot{f, &sync.Mutex{}}
 	}
-
-	//f, err := os.OpenFile("hardstate", os.O_CREATE|os.O_RDWR|syscall.O_SYNC, 0644)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//go func(file *os.File, channel chan []byte) {
-	//	fmt.Println("Listening on hardstate chan")
-	//	for {
-	//		select {
-	//		case bytes := <-channel:
-	//			_, err = file.WriteAt(bytes, 0)
-	//			if err != nil {
-	//				panic(err)
-	//			}
-	//			err = syscall.Fsync(int(file.Fd()))
-	//			if err != nil {
-	//				fmt.Println("Error fsyncing file: ", err)
-	//				return
-	//			}
-	//			s.pool.Put(bytes)
-	//			s.hardstateGroup.Done()
-	//		default:
-	//		}
-	//	}
-	//}(f, s.hardstateChan)
 
 	s.setupRaft()
 	go s.startPeerListener()
