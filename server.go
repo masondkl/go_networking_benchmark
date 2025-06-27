@@ -34,6 +34,7 @@ var (
 	walFileCount        = flag.Int("wal-file-count", 0, "wal file count")
 	manual              = flag.String("manual", "none", "fsync, dsync, or none")
 	flags               = flag.String("flags", "none", "fsync, dsync, sync, none")
+	memory              = flag.Bool("memory", false, "use memory")
 )
 
 type WalSlot struct {
@@ -287,62 +288,17 @@ func (s *Server) startPeerListener() {
 }
 
 func (s *Server) processHardState(hs raftpb.HardState) {
-	if !raft.IsEmptyHardState(hs) {
-		buffer := s.pool.Get().([]byte)
-		size, err := hs.MarshalTo(buffer)
-		if err != nil {
-			panic(err)
-		}
-		s.hardstateMutex.Lock()
-		count := int64(0)
-		for {
-			wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
-			if err != nil {
-				panic(err)
-			}
-			count += int64(wrote)
-			if count == int64(size) {
-				break
-			}
-		}
-		if *manual == "fsync" {
-			err = syscall.Fsync(int(s.hardstateFile.Fd()))
-			if err != nil {
-				fmt.Println("Error fsyncing file: ", err)
-				return
-			}
-		} else if *manual == "dsync" {
-			err = syscall.Fdatasync(int(s.hardstateFile.Fd()))
-			if err != nil {
-				fmt.Println("Error fsyncing file: ", err)
-				return
-			}
-		}
-		s.hardstateMutex.Unlock()
-	}
-}
-
-func (s *Server) processEntries(entries []raftpb.Entry) {
-	if len(entries) > 0 {
-		if err := s.storage.Append(entries); err != nil {
-			log.Printf("Append entries error: %v", err)
-		}
-	}
-	group := sync.WaitGroup{}
-	group.Add(len(entries))
-	for _, e := range entries {
-		go func(entry raftpb.Entry) {
+	if !(*memory) {
+		if !raft.IsEmptyHardState(hs) {
 			buffer := s.pool.Get().([]byte)
-			size, err := entry.MarshalTo(buffer)
+			size, err := hs.MarshalTo(buffer)
 			if err != nil {
 				panic(err)
 			}
-			walIndex := entry.Index % uint64(*walFileCount)
-			slot := s.walSlots[walIndex]
-			slot.mutex.Lock()
+			s.hardstateMutex.Lock()
 			count := int64(0)
 			for {
-				wrote, err := slot.file.WriteAt(buffer[count:size], count)
+				wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
 				if err != nil {
 					panic(err)
 				}
@@ -352,23 +308,72 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 				}
 			}
 			if *manual == "fsync" {
-				err = syscall.Fsync(int(slot.file.Fd()))
+				err = syscall.Fsync(int(s.hardstateFile.Fd()))
 				if err != nil {
 					fmt.Println("Error fsyncing file: ", err)
 					return
 				}
 			} else if *manual == "dsync" {
-				err = syscall.Fdatasync(int(slot.file.Fd()))
+				err = syscall.Fdatasync(int(s.hardstateFile.Fd()))
 				if err != nil {
 					fmt.Println("Error fsyncing file: ", err)
 					return
 				}
 			}
-			slot.mutex.Unlock()
-			group.Done()
-		}(e)
+			s.hardstateMutex.Unlock()
+		}
 	}
-	group.Wait()
+}
+
+func (s *Server) processEntries(entries []raftpb.Entry) {
+	if len(entries) > 0 {
+		if err := s.storage.Append(entries); err != nil {
+			log.Printf("Append entries error: %v", err)
+		}
+	}
+	if !(*memory) {
+		group := sync.WaitGroup{}
+		group.Add(len(entries))
+		for _, e := range entries {
+			go func(entry raftpb.Entry) {
+				buffer := s.pool.Get().([]byte)
+				size, err := entry.MarshalTo(buffer)
+				if err != nil {
+					panic(err)
+				}
+				walIndex := entry.Index % uint64(*walFileCount)
+				slot := s.walSlots[walIndex]
+				slot.mutex.Lock()
+				count := int64(0)
+				for {
+					wrote, err := slot.file.WriteAt(buffer[count:size], count)
+					if err != nil {
+						panic(err)
+					}
+					count += int64(wrote)
+					if count == int64(size) {
+						break
+					}
+				}
+				if *manual == "fsync" {
+					err = syscall.Fsync(int(slot.file.Fd()))
+					if err != nil {
+						fmt.Println("Error fsyncing file: ", err)
+						return
+					}
+				} else if *manual == "dsync" {
+					err = syscall.Fdatasync(int(slot.file.Fd()))
+					if err != nil {
+						fmt.Println("Error fsyncing file: ", err)
+						return
+					}
+				}
+				slot.mutex.Unlock()
+				group.Done()
+			}(e)
+		}
+		group.Wait()
+	}
 }
 
 func (s *Server) processCommittedEntries(entries []raftpb.Entry) {
