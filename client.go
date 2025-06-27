@@ -79,9 +79,7 @@ func client() {
 
 				end := time.Now().UnixMicro()
 				clientTimes[i][c] = int(end - begin)
-				if c%100 == 0 {
-					fmt.Printf("[%d] %d\n", i, c)
-				}
+				fmt.Printf("[%d] %d\n", i, c)
 			}
 			group.Done()
 			//err := connection.Close()
