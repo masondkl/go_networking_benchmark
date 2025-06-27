@@ -52,13 +52,9 @@ type Server struct {
 	peerConnections     [][]PeerConnection
 	peerConnRoundRobins []uint32
 	shutdownChan        chan struct{}
-	hardstateChan       chan []byte
-
-	walSlots []WalSlot
-	//walChans            []chan []byte
-	//walGroup            *sync.WaitGroup
-	hardstateGroup sync.WaitGroup
-	isLeader       bool
+	walSlots            []WalSlot
+	hardstateMutex      *sync.Mutex
+	hardstateFile       *os.File
 }
 
 func (s *Server) initPool() {
@@ -102,17 +98,6 @@ func (s *Server) setupRaft() {
 	}
 
 	s.node = raft.StartNode(s.config, peers)
-
-	go func() {
-		time.Sleep(time.Second * 15)
-		if s.node.Status().Lead == s.config.ID {
-			fmt.Printf("Node is leader\n")
-			s.isLeader = true
-		} else {
-			fmt.Printf("Node is not leader\n")
-			s.isLeader = false
-		}
-	}()
 }
 
 func (s *Server) connectToPeer(peerIdx, connIdx int) {
@@ -184,12 +169,14 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 
 func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data []byte) {
 	messageId := atomic.AddUint32(&s.opIndex, 1)
+	ownerId := uint32(s.config.ID)
 	bufferCopy := s.pool.Get().([]byte)
 	binary.LittleEndian.PutUint32(bufferCopy[:4], messageId)
-	copy(bufferCopy[4:len(data)+4], data)
+	binary.LittleEndian.PutUint32(bufferCopy[4:8], ownerId)
+	copy(bufferCopy[8:len(data)+8], data)
 	s.senders.Store(messageId, ClientRequest{&conn, writeLock, bufferCopy})
 	go func() {
-		if err := s.node.Propose(context.TODO(), bufferCopy[:len(data)+4]); err != nil {
+		if err := s.node.Propose(context.TODO(), bufferCopy[:len(data)+8]); err != nil {
 			panic(err)
 		}
 	}()
@@ -302,14 +289,36 @@ func (s *Server) startPeerListener() {
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
 		buffer := s.pool.Get().([]byte)
-		_, err := hs.MarshalTo(buffer)
+		size, err := hs.MarshalTo(buffer)
 		if err != nil {
 			panic(err)
 		}
-		//TODO: maybe move this to processEntries and write it alongside wal file 0
-		//s.hardstateGroup.Add(1)
-		//s.hardstateChan <- buffer
-		//s.hardstateGroup.Wait()
+		s.hardstateMutex.Lock()
+		count := int64(0)
+		for {
+			wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
+			if err != nil {
+				panic(err)
+			}
+			count += int64(wrote)
+			if count == int64(size) {
+				break
+			}
+		}
+		if *manual == "fsync" {
+			err = syscall.Fsync(int(s.hardstateFile.Fd()))
+			if err != nil {
+				fmt.Println("Error fsyncing file: ", err)
+				return
+			}
+		} else if *manual == "dsync" {
+			err = syscall.Fdatasync(int(s.hardstateFile.Fd()))
+			if err != nil {
+				fmt.Println("Error fsyncing file: ", err)
+				return
+			}
+		}
+		s.hardstateMutex.Unlock()
 	}
 }
 
@@ -383,9 +392,13 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 }
 
 func (s *Server) processNormalEntry(entry raftpb.Entry) {
-	if len(entry.Data) >= 4 && s.isLeader {
-		index := binary.LittleEndian.Uint32(entry.Data[:4])
-		s.respondToClient(index)
+	if len(entry.Data) >= 8 {
+		messageIndex := binary.LittleEndian.Uint32(entry.Data[:4])
+		ownerIndex := binary.LittleEndian.Uint32(entry.Data[4:])
+		if ownerIndex == uint32(s.config.ID) {
+			fmt.Printf("responding to %d as %d\n", messageIndex, ownerIndex)
+			s.respondToClient(messageIndex)
+		}
 	}
 }
 
@@ -469,7 +482,7 @@ func (s *Server) processReady(rd raft.Ready) {
 }
 
 func (s *Server) run() {
-	ticker := time.NewTicker(500 * time.Millisecond)
+	ticker := time.NewTicker(150 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -490,33 +503,36 @@ func (s *Server) Shutdown() {
 
 func NewServer() *Server {
 	s := &Server{
-		peerAddresses: strings.Split(*peerAddressesString, ","),
-		shutdownChan:  make(chan struct{}),
-
-		walSlots: make([]WalSlot, *walFileCount),
-
-		hardstateChan:  make(chan []byte, 100000),
-		hardstateGroup: sync.WaitGroup{},
+		peerAddresses:  strings.Split(*peerAddressesString, ","),
+		shutdownChan:   make(chan struct{}),
+		walSlots:       make([]WalSlot, *walFileCount),
+		hardstateMutex: &sync.Mutex{},
 	}
 
 	s.initPool()
 	s.warmupPool()
 
+	fileFlags := 0
+	if *flags == "fsync" {
+		fileFlags = syscall.O_FSYNC
+	} else if *flags == "dsync" {
+		fileFlags = syscall.O_DSYNC
+	} else if *flags == "sync" {
+		fileFlags = syscall.O_SYNC
+	}
 	for i := range *walFileCount {
-		fileFlags := 0
-		if *flags == "fsync" {
-			fileFlags = syscall.O_FSYNC
-		} else if *flags == "dsync" {
-			fileFlags = syscall.O_DSYNC
-		} else if *flags == "sync" {
-			fileFlags = syscall.O_SYNC
-		}
 		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|fileFlags, 0644)
 		if err != nil {
 			panic(err)
 		}
 		s.walSlots[i] = WalSlot{f, &sync.Mutex{}}
 	}
+
+	f, err := os.OpenFile("hardstate", os.O_CREATE|os.O_RDWR|fileFlags, 0644)
+	if err != nil {
+		panic(err)
+	}
+	s.hardstateFile = f
 
 	s.setupRaft()
 	go s.startPeerListener()
