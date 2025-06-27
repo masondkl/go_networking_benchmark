@@ -474,7 +474,7 @@ func NewServer() *Server {
 	s.warmupPool()
 
 	for i := range *walFileCount {
-		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|syscall.O_FSYNC, 0644)
+		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|syscall.O_DSYNC, 0644)
 		if err != nil {
 			panic(err)
 		}
