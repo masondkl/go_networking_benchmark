@@ -90,16 +90,6 @@ func (s *Server) initPool() {
 	}()
 }
 
-func (s *Server) warmupPool() {
-	stored := make([][]byte, *poolWarmupSize)
-	for i := range stored {
-		stored[i] = s.pool.Get().([]byte)
-	}
-	for i := range stored {
-		s.pool.Put(stored[i])
-	}
-}
-
 func (s *Server) setupRaft() {
 	s.storage = raft.NewMemoryStorage()
 	s.config = &raft.Config{
@@ -227,6 +217,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 
 func (s *Server) processCommittedEntries(entries []raftpb.Entry) {
 	for _, entry := range entries {
+		//
 		switch entry.Type {
 		case raftpb.EntryConfChange:
 			s.processConfChange(entry)
