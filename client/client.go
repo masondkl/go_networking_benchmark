@@ -1,9 +1,10 @@
-package main
+package client
 
 import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"networking_benchmark/shared"
 	"os"
 	"sort"
 	"strconv"
@@ -11,7 +12,7 @@ import (
 	"time"
 )
 
-func client() {
+func StartClient() {
 	fmt.Println("Starting client")
 	address := os.Args[2]
 	dataSize, err := strconv.Atoi(os.Args[3])
@@ -60,26 +61,26 @@ func client() {
 
 				begin := time.Now().UnixMicro()
 
-				err := Write(connection, bytes)
+				err := shared.Write(connection, bytes)
 				if err != nil {
 					panic(err)
 				}
 
-				err = Read(connection, bytes[:4])
+				err = shared.Read(connection, bytes[:4])
 				if err != nil {
 					panic(err)
 				}
 
 				amount := binary.LittleEndian.Uint32(bytes[:4])
 
-				err = Read(connection, bytes[:amount])
+				err = shared.Read(connection, bytes[:amount])
 				if err != nil {
 					panic(err)
 				}
 
 				end := time.Now().UnixMicro()
 				clientTimes[i][c] = int(end - begin)
-				if c%10 == 0 {
+				if c%10000 == 0 {
 					fmt.Printf("[%d] %d\n", i, c)
 				}
 			}

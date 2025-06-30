@@ -21,3 +21,15 @@ client 127.0.0.1:7000 1 1000000 10
 ./networking_benchmark -walFileCount=100 -node=0 -pool-data-size=2000 -pool-warmup-size=1000000 -peer-connections=1 -peer-listen="10.10.1.1:6900" -client-listen="10.10.1.1:7000" -peer-addresses="10.10.1.1:6900"
 ./networking_benchmark client 10.10.1.1:7000 1 1000000 100
 
+-node=0
+-memory=true
+-wal-file-count=50
+-manual=fsync
+-flags=none
+-pool-data-size=2000
+-pool-warmup-size=1000000
+-peer-connections=1
+-peer-listen="127.0.0.1:6900"
+-client-listen="127.0.0.1:7000"
+-peer-addresses="127.0.0.1:6900,127.0.0.1:6901"
+
