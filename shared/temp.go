@@ -31,7 +31,7 @@ type ClientRequest struct {
 	Connection net.Conn
 	WriteLock  *sync.Mutex
 	//writeChan chan WriteOp
-	Buffer []byte
+	//Buffer []byte
 }
 
 type PeerConnection struct {

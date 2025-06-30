@@ -28,7 +28,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 
 func (s *Server) sendMessageToPeer(msg raftpb.Message) {
 	buffer := s.pool.Get().([]byte)
-	atomic.AddUint32(&s.poolSize, ^uint32(0))
+	//atomic.AddUint32(&s.poolSize, ^uint32(0))
 
 	if len(msg.Snapshot.Data) > 0 {
 		log.Printf("Processing snapshot of size %d", len(msg.Snapshot.Data))
@@ -59,7 +59,7 @@ func (s *Server) sendMessageToPeer(msg raftpb.Message) {
 		log.Printf("Write error to peer %d: %v", msg.To, err)
 	}
 	s.pool.Put(buffer)
-	atomic.AddUint32(&s.poolSize, 1)
+	//atomic.AddUint32(&s.poolSize, 1)
 }
 
 func (s *Server) handlePeerMessage(data []byte, amount int) {
@@ -73,7 +73,7 @@ func (s *Server) handlePeerMessage(data []byte, amount int) {
 			panic(err)
 		}
 		s.pool.Put(data)
-		atomic.AddUint32(&s.poolSize, 1)
+		//atomic.AddUint32(&s.poolSize, 1)
 	} else if op == OP_MESSAGE {
 		var msg raftpb.Message
 		if err := msg.Unmarshal(data[1:amount]); err != nil {
@@ -84,7 +84,7 @@ func (s *Server) handlePeerMessage(data []byte, amount int) {
 			log.Printf("Step error: %v", err)
 		}
 		s.pool.Put(data)
-		atomic.AddUint32(&s.poolSize, 1)
+		//atomic.AddUint32(&s.poolSize, 1)
 	} else {
 		panic(fmt.Sprintf("Unknown op: %v\n", op))
 	}
@@ -120,7 +120,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		}
 
 		bufferCopy := s.pool.Get().([]byte)
-		atomic.AddUint32(&s.poolSize, ^uint32(0))
+		//atomic.AddUint32(&s.poolSize, ^uint32(0))
 		if cap(bufferCopy) < int(amount) {
 			bufferCopy = append(bufferCopy, make([]byte, int(amount)-cap(bufferCopy))...)
 			bufferCopy = bufferCopy[:cap(bufferCopy)]

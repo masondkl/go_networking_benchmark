@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
+	//"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -80,14 +80,14 @@ func (s *Server) initPool() {
 		s.pool.Put(stored[i])
 	}
 
-	atomic.AddUint32(&s.poolSize, uint32(*poolWarmupSize))
+	//atomic.AddUint32(&s.poolSize, uint32(*poolWarmupSize))
 
-	go func() {
-		for {
-			time.Sleep(500 * time.Millisecond)
-			fmt.Printf("Pool size: %d\n", atomic.LoadUint32(&s.poolSize))
-		}
-	}()
+	//go func() {
+	//	for {
+	//		time.Sleep(500 * time.Millisecond)
+	//		fmt.Printf("Pool size: %d\n", atomic.LoadUint32(&s.poolSize))
+	//	}
+	//}()
 }
 
 func (s *Server) setupRaft() {
@@ -240,6 +240,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	if len(entry.Data) >= 8 {
 		messageIndex := binary.LittleEndian.Uint32(entry.Data[1:5])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[5:9])
+		//fmt.Printf("Message index:Owner index: %d-%d-%d\n", messageIndex, ownerIndex, len(entry.Data))
 		if ownerIndex == uint32(s.config.ID) {
 			//fmt.Printf("responding to %d as %d\n", messageIndex, ownerIndex)
 			go s.respondToClient(messageIndex)
