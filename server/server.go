@@ -118,42 +118,42 @@ func (s *Server) setupRaft() {
 
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
-		if !(*memory) {
-			buffer := s.pool.Get().([]byte)
-			size, err := hs.MarshalTo(buffer)
-			if err != nil {
-				panic(err)
-			}
-			s.hardstateMutex.Lock()
-			count := int64(0)
-			for {
-				wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
-				if err != nil {
-					panic(err)
-				}
-				count += int64(wrote)
-				if count == int64(size) {
-					break
-				}
-			}
-			if *manual == "fsync" {
-				fd := int(s.hardstateFile.Fd())
-				err = syscall.Fsync(fd)
-				if err != nil {
-					fmt.Println("Error fsyncing file: ", err)
-					return
-				}
-			} else if *manual == "dsync" {
-				fd := int(s.hardstateFile.Fd())
-				err = syscall.Fdatasync(fd)
-				if err != nil {
-					fmt.Println("Error fsyncing file: ", err)
-					return
-				}
-			}
-			s.hardstateMutex.Unlock()
-			s.pool.Put(buffer)
-		}
+		//if !(*memory) {
+		//	buffer := s.pool.Get().([]byte)
+		//	size, err := hs.MarshalTo(buffer)
+		//	if err != nil {
+		//		panic(err)
+		//	}
+		//	s.hardstateMutex.Lock()
+		//	count := int64(0)
+		//	for {
+		//		wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
+		//		if err != nil {
+		//			panic(err)
+		//		}
+		//		count += int64(wrote)
+		//		if count == int64(size) {
+		//			break
+		//		}
+		//	}
+		//	if *manual == "fsync" {
+		//		fd := int(s.hardstateFile.Fd())
+		//		err = syscall.Fsync(fd)
+		//		if err != nil {
+		//			fmt.Println("Error fsyncing file: ", err)
+		//			return
+		//		}
+		//	} else if *manual == "dsync" {
+		//		fd := int(s.hardstateFile.Fd())
+		//		err = syscall.Fdatasync(fd)
+		//		if err != nil {
+		//			fmt.Println("Error fsyncing file: ", err)
+		//			return
+		//		}
+		//	}
+		//	s.hardstateMutex.Unlock()
+		//	s.pool.Put(buffer)
+		//}
 
 		err := s.storage.SetHardState(hs)
 		if err != nil {
@@ -170,65 +170,65 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			log.Printf("Append entries error: %v", err)
 		}
 	}
-	if !(*memory) {
-		group := sync.WaitGroup{}
-
-		for _, e := range entries {
-			walIndex := e.Index % uint64(*walFileCount)
-			grouped[walIndex] = append(grouped[walIndex], e)
-		}
-
-		group.Add(len(entries))
-
-		for walIndex := range grouped {
-			walEntries := grouped[walIndex]
-			slot := s.walSlots[walIndex]
-			go func() {
-				for entryIndex := range walEntries {
-					entry := walEntries[entryIndex]
-					buffer := s.pool.Get().([]byte)
-					size, err := entry.MarshalTo(buffer)
-					if err != nil {
-						panic(err)
-					}
-					slot.mutex.Lock()
-					count := 0
-					for {
-						wrote, err := slot.file.WriteAt(buffer[count:size], int64(slot.offset+count))
-						if err != nil {
-							panic(err)
-						}
-						count += wrote
-						if count == size {
-							break
-						}
-					}
-					slot.offset += size
-					slot.mutex.Unlock()
-					s.pool.Put(buffer)
-					group.Done()
-				}
-				if *manual == "fsync" {
-					err := syscall.Fsync(int(slot.file.Fd()))
-					if err != nil {
-						fmt.Println("Error fsyncing file: ", err)
-						return
-					}
-				} else if *manual == "dsync" {
-					err := syscall.Fdatasync(int(slot.file.Fd()))
-					if err != nil {
-						fmt.Println("Error fsyncing file: ", err)
-						return
-					}
-				}
-			}()
-		}
-		group.Wait()
-
-		for k := range grouped {
-			delete(grouped, k)
-		}
-	}
+	//if !(*memory) {
+	//	group := sync.WaitGroup{}
+	//
+	//	for _, e := range entries {
+	//		walIndex := e.Index % uint64(*walFileCount)
+	//		grouped[walIndex] = append(grouped[walIndex], e)
+	//	}
+	//
+	//	group.Add(len(entries))
+	//
+	//	for walIndex := range grouped {
+	//		walEntries := grouped[walIndex]
+	//		slot := s.walSlots[walIndex]
+	//		go func() {
+	//			for entryIndex := range walEntries {
+	//				entry := walEntries[entryIndex]
+	//				buffer := s.pool.Get().([]byte)
+	//				size, err := entry.MarshalTo(buffer)
+	//				if err != nil {
+	//					panic(err)
+	//				}
+	//				slot.mutex.Lock()
+	//				count := 0
+	//				for {
+	//					wrote, err := slot.file.WriteAt(buffer[count:size], int64(slot.offset+count))
+	//					if err != nil {
+	//						panic(err)
+	//					}
+	//					count += wrote
+	//					if count == size {
+	//						break
+	//					}
+	//				}
+	//				slot.offset += size
+	//				slot.mutex.Unlock()
+	//				s.pool.Put(buffer)
+	//				group.Done()
+	//			}
+	//			if *manual == "fsync" {
+	//				err := syscall.Fsync(int(slot.file.Fd()))
+	//				if err != nil {
+	//					fmt.Println("Error fsyncing file: ", err)
+	//					return
+	//				}
+	//			} else if *manual == "dsync" {
+	//				err := syscall.Fdatasync(int(slot.file.Fd()))
+	//				if err != nil {
+	//					fmt.Println("Error fsyncing file: ", err)
+	//					return
+	//				}
+	//			}
+	//		}()
+	//	}
+	//	group.Wait()
+	//
+	//	for k := range grouped {
+	//		delete(grouped, k)
+	//	}
+	//}
 }
 
 func (s *Server) processCommittedEntries(entries []raftpb.Entry) {
@@ -303,6 +303,22 @@ func (s *Server) Shutdown() {
 	close(s.shutdownChan)
 }
 
+func wipeWorkingDirectory() error {
+	files, err := os.ReadDir(".")
+	if err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		err := os.RemoveAll(file.Name()) // works for both files and directories
+		if err != nil {
+			return fmt.Errorf("failed to remove %s: %w", file.Name(), err)
+		}
+	}
+
+	return nil
+}
+
 func NewServer() *Server {
 	s := &Server{
 		peerAddresses:  strings.Split(*peerAddressesString, ","),
@@ -316,9 +332,9 @@ func NewServer() *Server {
 
 	fileFlags := 0
 	if *flags == "fsync" {
-		fileFlags = syscall.O_FSYNC
+		//fileFlags = syscall.O_FSYNC
 	} else if *flags == "dsync" {
-		fileFlags = syscall.O_DSYNC
+		//fileFlags = syscall.O_DSYNC
 	} else if *flags == "sync" {
 		fileFlags = syscall.O_SYNC
 	}
@@ -390,6 +406,10 @@ func startProfiling() {
 
 func StartServer() {
 	flag.Parse()
+	err := wipeWorkingDirectory()
+	if err != nil {
+		panic(err)
+	}
 	SetupKeyBucket()
 	//startProfiling()
 	NewServer().run()

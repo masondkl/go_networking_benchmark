@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"go.etcd.io/bbolt"
 	"networking_benchmark/shared"
-	"os"
 )
 
 var (
@@ -15,12 +14,7 @@ var (
 )
 
 func SetupKeyBucket() {
-	err := os.Remove("data.db")
-	if err != nil && !os.IsNotExist(err) {
-		panic(err)
-	}
-
-	db, err = bbolt.Open("data.db", 0600, nil)
+	db, err := bbolt.Open("data.db", 0600, nil)
 	if err != nil {
 		panic(err)
 	}
