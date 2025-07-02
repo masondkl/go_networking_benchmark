@@ -12,6 +12,7 @@ import (
 	"networking_benchmark/shared"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"strconv"
@@ -303,13 +304,23 @@ func (s *Server) Shutdown() {
 }
 
 func wipeWorkingDirectory() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+	exeBase := filepath.Base(exePath)
+
 	files, err := os.ReadDir(".")
 	if err != nil {
 		return err
 	}
 
 	for _, file := range files {
-		err := os.RemoveAll(file.Name()) // works for both files and directories
+		if file.Name() == exeBase {
+			continue // Skip the running executable
+		}
+
+		err := os.RemoveAll(file.Name())
 		if err != nil {
 			return fmt.Errorf("failed to remove %s: %w", file.Name(), err)
 		}
@@ -406,10 +417,10 @@ func startProfiling() {
 func StartServer() {
 	flag.Parse()
 	grouped = make(map[uint64][]raftpb.Entry)
-	err := wipeWorkingDirectory()
-	if err != nil {
-		panic(err)
-	}
+	//err := wipeWorkingDirectory()
+	//if err != nil {
+	//	panic(err)
+	//}
 	SetupKeyBucket()
 	//startProfiling()
 	NewServer().run()
