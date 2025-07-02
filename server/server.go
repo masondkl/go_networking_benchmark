@@ -332,9 +332,9 @@ func NewServer() *Server {
 
 	fileFlags := 0
 	if *flags == "fsync" {
-		//fileFlags = syscall.O_FSYNC
+		fileFlags = syscall.O_FSYNC
 	} else if *flags == "dsync" {
-		//fileFlags = syscall.O_DSYNC
+		fileFlags = syscall.O_DSYNC
 	} else if *flags == "sync" {
 		fileFlags = syscall.O_SYNC
 	}
@@ -406,6 +406,7 @@ func startProfiling() {
 
 func StartServer() {
 	flag.Parse()
+	grouped = make(map[uint64][]raftpb.Entry)
 	err := wipeWorkingDirectory()
 	if err != nil {
 		panic(err)
