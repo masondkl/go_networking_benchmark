@@ -5,6 +5,11 @@ import (
 	"sync"
 )
 
+const OP_WRITE = 0
+const OP_WRITE_MEMORY = 1
+const OP_READ = 2
+const OP_READ_MEMORY = 3
+
 func Read(connection net.Conn, buffer []byte) error {
 	for start := 0; start != len(buffer); {
 		amount, reason := connection.Read(buffer[start:])

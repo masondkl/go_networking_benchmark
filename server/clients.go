@@ -31,6 +31,7 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 
 func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data []byte) {
 	//fmt.Printf("Got a message?\n")
+
 	messageId := atomic.AddUint32(&s.opIndex, 1)
 	ownerId := uint32(s.config.ID)
 	//fmt.Printf("Owner id: %d\n", ownerId)
@@ -44,6 +45,7 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 		binary.LittleEndian.PutUint32(dataCopy[1:5], messageId)
 		binary.LittleEndian.PutUint32(dataCopy[5:9], ownerId)
 		copy(dataCopy[9:size], data)
+		//fmt.Printf("Got op: %d\n", dataCopy[9])
 		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
 
 		//fmt.Printf("Proposing since we are the leader?\n")
@@ -53,10 +55,6 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 			}
 		}()
 	} else {
-		// propose 0, 0
-		// propose 0, 1
-		// commit 0
-		// error commit 0
 		bufferCopy := s.pool.Get().([]byte)
 		bufferCopy[4] = OP_FORWARD
 		binary.LittleEndian.PutUint32(bufferCopy[5:9], messageId)
@@ -81,26 +79,37 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 	}
 }
 
-func (s *Server) respondToClient(index uint32) {
+func (s *Server) respondToClient(op byte, index uint32, data []byte) {
+
 	senderAny, ok := s.senders.LoadAndDelete(index)
 	//fmt.Printf("Removing index: %d\n", index)
-	respondBuffer := s.pool.Get().([]byte)
+	buffer := s.pool.Get().([]byte)
 	if !ok {
 		log.Printf("No sender found for index %d", index)
 		return
 	}
 
 	request := senderAny.(shared.ClientRequest)
-	binary.LittleEndian.PutUint32(respondBuffer[:4], 4)
-	binary.LittleEndian.PutUint32(respondBuffer[4:8], index)
+	var length uint32
+	if op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY {
+		binary.LittleEndian.PutUint32(buffer[:4], 1)
+		buffer[4] = op
+		length = uint32(5)
+	} else {
+		length = uint32(9 + len(data))
+		binary.LittleEndian.PutUint32(buffer[:4], length-4)
+		buffer[4] = op
+		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(data)))
+		copy(buffer[9:length], data)
+
+	}
 
 	request.WriteLock.Lock()
 	defer request.WriteLock.Unlock()
-	if err := shared.Write(request.Connection, respondBuffer[:8]); err != nil {
+	if err := shared.Write(request.Connection, buffer[:length]); err != nil {
 		log.Printf("Write error: %v", err)
 	}
-	s.pool.Put(respondBuffer)
-	//atomic.AddUint32(&s.poolSize, 1)
+	s.pool.Put(buffer)
 }
 
 func (s *Server) startClientListener() {

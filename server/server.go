@@ -58,6 +58,7 @@ type Server struct {
 	walSlots            []WalSlot
 	hardstateMutex      *sync.Mutex
 	hardstateFile       *os.File
+	dbChannel           chan []byte
 	leader              uint32
 	poolSize            uint32
 }
@@ -101,6 +102,8 @@ func (s *Server) setupRaft() {
 		MaxInflightMsgs: 1000000,
 	}
 
+	s.leader = uint32(s.config.ID)
+
 	fmt.Printf("Peer addresses: %v\n", s.peerAddresses)
 
 	peers := make([]raft.Peer, len(s.peerAddresses))
@@ -112,57 +115,53 @@ func (s *Server) setupRaft() {
 	s.node = raft.StartNode(s.config, peers)
 }
 
-//	func marshalMessage(msg raftpb.Message, buffer []byte) (int, error) {
-//		return msg.MarshalTo(buffer)
-//	}
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
 		if !(*memory) {
-			//buffer := s.pool.Get().([]byte)
-			//size, err := hs.MarshalTo(buffer)
-			//if err != nil {
-			//	panic(err)
-			//}
-			//s.hardstateMutex.Lock()
-			//count := int64(0)
-			//for {
-			//	wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
-			//	if err != nil {
-			//		panic(err)
-			//	}
-			//	count += int64(wrote)
-			//	if count == int64(size) {
-			//		break
-			//	}
-			//}
-			//if *manual == "fsync" {
-			//	fd := int(s.hardstateFile.Fd())
-			//	err = syscall.Fsync(fd)
-			//	if err != nil {
-			//		fmt.Println("Error fsyncing file: ", err)
-			//		return
-			//	}
-			//} else if *manual == "dsync" {
-			//	fd := int(s.hardstateFile.Fd())
-			//	err = syscall.Fdatasync(fd)
-			//	if err != nil {
-			//		fmt.Println("Error fsyncing file: ", err)
-			//		return
-			//	}
-			//}
+			buffer := s.pool.Get().([]byte)
+			size, err := hs.MarshalTo(buffer)
+			if err != nil {
+				panic(err)
+			}
+			s.hardstateMutex.Lock()
+			count := int64(0)
+			for {
+				wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
+				if err != nil {
+					panic(err)
+				}
+				count += int64(wrote)
+				if count == int64(size) {
+					break
+				}
+			}
+			if *manual == "fsync" {
+				fd := int(s.hardstateFile.Fd())
+				err = syscall.Fsync(fd)
+				if err != nil {
+					fmt.Println("Error fsyncing file: ", err)
+					return
+				}
+			} else if *manual == "dsync" {
+				fd := int(s.hardstateFile.Fd())
+				err = syscall.Fdatasync(fd)
+				if err != nil {
+					fmt.Println("Error fsyncing file: ", err)
+					return
+				}
+			}
 			s.hardstateMutex.Unlock()
-			err := s.storage.SetHardState(hs)
-			if err != nil {
-				panic(err)
-			}
-		} else {
-			err := s.storage.SetHardState(hs)
-			if err != nil {
-				panic(err)
-			}
+			s.pool.Put(buffer)
+		}
+
+		err := s.storage.SetHardState(hs)
+		if err != nil {
+			panic(err)
 		}
 	}
 }
+
+var grouped map[uint64][]raftpb.Entry
 
 func (s *Server) processEntries(entries []raftpb.Entry) {
 	if len(entries) > 0 {
@@ -170,49 +169,64 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			log.Printf("Append entries error: %v", err)
 		}
 	}
-	//if !(*memory) {
-	//	group := sync.WaitGroup{}
-	//	group.Add(len(entries))
-	//	for _, e := range entries {
-	//		go func(entry raftpb.Entry) {
-	//			buffer := s.pool.Get().([]byte)
-	//			size, err := entry.MarshalTo(buffer)
-	//			if err != nil {
-	//				panic(err)
-	//			}
-	//			walIndex := entry.Index % uint64(*walFileCount)
-	//			slot := s.walSlots[walIndex]
-	//			slot.mutex.Lock()
-	//			count := int64(0)
-	//			for {
-	//				wrote, err := slot.file.WriteAt(buffer[count:size], count)
-	//				if err != nil {
-	//					panic(err)
-	//				}
-	//				count += int64(wrote)
-	//				if count == int64(size) {
-	//					break
-	//				}
-	//			}
-	//			//if *manual == "fsync" {
-	//			//	err = syscall.Fsync(int(slot.file.Fd()))
-	//			//	if err != nil {
-	//			//		fmt.Println("Error fsyncing file: ", err)
-	//			//		return
-	//			//	}
-	//			//} else if *manual == "dsync" {
-	//			//	err = syscall.Fdatasync(int(slot.file.Fd()))
-	//			//	if err != nil {
-	//			//		fmt.Println("Error fsyncing file: ", err)
-	//			//		return
-	//			//	}
-	//			//}
-	//			slot.mutex.Unlock()
-	//			group.Done()
-	//		}(e)
-	//	}
-	//	group.Wait()
-	//}
+	if !(*memory) {
+		group := sync.WaitGroup{}
+
+		for _, e := range entries {
+			walIndex := e.Index % uint64(*walFileCount)
+			grouped[walIndex] = append(grouped[walIndex], e)
+		}
+
+		group.Add(len(entries))
+
+		for walIndex := range grouped {
+			walEntries := grouped[walIndex]
+			slot := s.walSlots[walIndex]
+			go func() {
+				for entryIndex := range walEntries {
+					entry := walEntries[entryIndex]
+					buffer := s.pool.Get().([]byte)
+					size, err := entry.MarshalTo(buffer)
+					if err != nil {
+						panic(err)
+					}
+					slot.mutex.Lock()
+					count := int64(0)
+					for {
+						wrote, err := slot.file.WriteAt(buffer[count:size], count)
+						if err != nil {
+							panic(err)
+						}
+						count += int64(wrote)
+						if count == int64(size) {
+							break
+						}
+					}
+					slot.mutex.Unlock()
+					s.pool.Put(buffer)
+					group.Done()
+				}
+				if *manual == "fsync" {
+					err := syscall.Fsync(int(slot.file.Fd()))
+					if err != nil {
+						fmt.Println("Error fsyncing file: ", err)
+						return
+					}
+				} else if *manual == "dsync" {
+					err := syscall.Fdatasync(int(slot.file.Fd()))
+					if err != nil {
+						fmt.Println("Error fsyncing file: ", err)
+						return
+					}
+				}
+			}()
+		}
+		group.Wait()
+
+		for k := range grouped {
+			delete(grouped, k)
+		}
+	}
 }
 
 func (s *Server) processCommittedEntries(entries []raftpb.Entry) {
@@ -237,13 +251,17 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 }
 
 func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
+	//fmt.Printf("Processing commited entry: %v\n", entry)
 	if len(entry.Data) >= 8 {
 		messageIndex := binary.LittleEndian.Uint32(entry.Data[1:5])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[5:9])
-		//fmt.Printf("Message index:Owner index: %d-%d-%d\n", messageIndex, ownerIndex, len(entry.Data))
-		if ownerIndex == uint32(s.config.ID) {
-			//fmt.Printf("responding to %d as %d\n", messageIndex, ownerIndex)
-			go s.respondToClient(messageIndex)
+		//fmt.Printf("MsgIndex: %d, OwnerIndex: %d\n", messageIndex, ownerIndex)
+		//dataCopy := s.pool.Get().([]byte)
+		//dataCopy.
+		op := entry.Data[9]
+		s.dbChannel <- entry.Data
+		if ownerIndex == uint32(s.config.ID) && (op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY) {
+			go s.respondToClient(op, messageIndex, nil)
 		}
 	}
 }
@@ -289,6 +307,7 @@ func NewServer() *Server {
 		shutdownChan:   make(chan struct{}),
 		walSlots:       make([]WalSlot, *walFileCount),
 		hardstateMutex: &sync.Mutex{},
+		dbChannel:      make(chan []byte, 10000000),
 	}
 
 	s.initPool()
@@ -314,6 +333,8 @@ func NewServer() *Server {
 		panic(err)
 	}
 	s.hardstateFile = f
+
+	go s.DbHandler()
 
 	s.setupRaft()
 	go s.startPeerListener()
@@ -367,6 +388,7 @@ func startProfiling() {
 
 func StartServer() {
 	flag.Parse()
-	startProfiling()
+	SetupKeyBucket()
+	//startProfiling()
 	NewServer().run()
 }
