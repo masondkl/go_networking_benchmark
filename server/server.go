@@ -193,7 +193,8 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 					slot.mutex.Lock()
 					count := 0
 					for {
-						wrote, err := slot.file.WriteAt(buffer[count:size], int64(slot.offset+count))
+						//wrote, err := slot.file.WriteAt(buffer[count:size], int64(slot.offset+count))
+						wrote, err := slot.file.Write(buffer[count:size])
 						if err != nil {
 							panic(err)
 						}
@@ -202,7 +203,6 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 							break
 						}
 					}
-					slot.offset += size
 					slot.mutex.Unlock()
 					s.pool.Put(buffer)
 					group.Done()
