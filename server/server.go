@@ -40,8 +40,9 @@ var OP_FORWARD = byte(0)
 var OP_MESSAGE = byte(1)
 
 type WalSlot struct {
-	file  *os.File
-	mutex *sync.Mutex
+	file   *os.File
+	mutex  *sync.Mutex
+	offset int
 }
 
 type Server struct {
@@ -191,17 +192,18 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 						panic(err)
 					}
 					slot.mutex.Lock()
-					count := int64(0)
+					count := 0
 					for {
-						wrote, err := slot.file.WriteAt(buffer[count:size], count)
+						wrote, err := slot.file.WriteAt(buffer[count:size], int64(slot.offset+count))
 						if err != nil {
 							panic(err)
 						}
-						count += int64(wrote)
-						if count == int64(size) {
+						count += wrote
+						if count == size {
 							break
 						}
 					}
+					slot.offset += size
 					slot.mutex.Unlock()
 					s.pool.Put(buffer)
 					group.Done()
@@ -325,7 +327,7 @@ func NewServer() *Server {
 		if err != nil {
 			panic(err)
 		}
-		s.walSlots[i] = WalSlot{f, &sync.Mutex{}}
+		s.walSlots[i] = WalSlot{f, &sync.Mutex{}, 0}
 	}
 
 	f, err := os.OpenFile("hardstate", os.O_CREATE|os.O_RDWR|fileFlags, 0644)

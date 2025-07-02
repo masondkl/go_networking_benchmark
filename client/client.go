@@ -476,8 +476,20 @@ func progressBar(title string, numOps int) {
 	barWidth := 50
 	for {
 		completed := atomic.LoadUint32(&completedOps)
+
+		if completed > uint32(numOps) {
+			completed = uint32(numOps)
+		}
+
 		percent := float64(completed) / float64(numOps) * 100
 		filled := int(float64(barWidth) * float64(completed) / float64(numOps))
+		if filled > barWidth {
+			filled = barWidth
+		}
+		if filled < 0 {
+			filled = 0
+		}
+
 		bar := "[" + strings.Repeat("=", filled) + strings.Repeat(" ", barWidth-filled) + "]"
 		fmt.Printf("\r%s Progress: %s %.2f%% (%d/%d)", title, bar, percent, completed, numOps)
 		if completed >= uint32(numOps) {
