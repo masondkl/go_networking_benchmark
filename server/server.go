@@ -316,9 +316,9 @@ func NewServer() *Server {
 
 	fileFlags := 0
 	if *flags == "fsync" {
-		//fileFlags = syscall.O_FSYNC
+		fileFlags = syscall.O_FSYNC
 	} else if *flags == "dsync" {
-		//fileFlags = syscall.O_DSYNC
+		fileFlags = syscall.O_DSYNC
 	} else if *flags == "sync" {
 		fileFlags = syscall.O_SYNC
 	}
