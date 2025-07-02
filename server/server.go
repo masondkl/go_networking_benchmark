@@ -40,9 +40,8 @@ var OP_FORWARD = byte(0)
 var OP_MESSAGE = byte(1)
 
 type WalSlot struct {
-	file   *os.File
-	mutex  *sync.Mutex
-	offset int
+	file  *os.File
+	mutex *sync.Mutex
 }
 
 type Server struct {
@@ -339,11 +338,11 @@ func NewServer() *Server {
 		fileFlags = syscall.O_SYNC
 	}
 	for i := range *walFileCount {
-		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|fileFlags, 0644)
+		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|os.O_APPEND|fileFlags, 0644)
 		if err != nil {
 			panic(err)
 		}
-		s.walSlots[i] = WalSlot{f, &sync.Mutex{}, 0}
+		s.walSlots[i] = WalSlot{f, &sync.Mutex{}}
 	}
 
 	f, err := os.OpenFile("hardstate", os.O_CREATE|os.O_RDWR|fileFlags, 0644)
