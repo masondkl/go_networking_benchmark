@@ -57,6 +57,7 @@ type Server struct {
 	peerConnRoundRobins []uint32
 	shutdownChan        chan struct{}
 	walSlots            []WalSlot
+	walBulkFile         *os.File
 	hardstateMutex      *sync.Mutex
 	hardstateFile       *os.File
 	dbChannel           chan []byte
@@ -171,28 +172,30 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 		}
 	}
 	if !(*memory) {
+		fmt.Printf("Entries: %d\n", len(entries))
 		group := sync.WaitGroup{}
-
 		for _, e := range entries {
 			walIndex := e.Index % uint64(*walFileCount)
 			grouped[walIndex] = append(grouped[walIndex], e)
 		}
 
-		group.Add(len(entries))
+		group.Add(len(grouped))
 
 		for walIndex := range grouped {
 			walEntries := grouped[walIndex]
 			slot := s.walSlots[walIndex]
 			go func() {
 				buffer := s.pool.Get().([]byte)
-
-				entry := walEntries[len(walEntries)-1]
-				size, err := entry.MarshalTo(buffer[0:])
-				if err != nil {
-					panic(err)
+				size := 0
+				for entryIndex := range walEntries {
+					entry := walEntries[entryIndex]
+					entrySize, err := entry.MarshalTo(buffer[size:])
+					if err != nil {
+						panic(err)
+					}
+					size += entrySize
 				}
 
-				slot.mutex.Lock()
 				count := 0
 				for {
 					wrote, err := slot.file.Write(buffer[count:size])
@@ -204,7 +207,6 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 						break
 					}
 				}
-				slot.mutex.Unlock()
 				s.pool.Put(buffer)
 				if *manual == "fsync" {
 					err := syscall.Fsync(int(slot.file.Fd()))
@@ -283,7 +285,7 @@ func (s *Server) processReady(rd raft.Ready) {
 }
 
 func (s *Server) run() {
-	ticker := time.NewTicker(150 * time.Millisecond)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -356,11 +358,17 @@ func NewServer() *Server {
 		s.walSlots[i] = WalSlot{f, &sync.Mutex{}}
 	}
 
-	f, err := os.OpenFile("hardstate", os.O_CREATE|os.O_RDWR|fileFlags, 0644)
+	hardstateFile, err := os.OpenFile("hardstate", os.O_CREATE|os.O_RDWR|fileFlags, 0644)
 	if err != nil {
 		panic(err)
 	}
-	s.hardstateFile = f
+	s.hardstateFile = hardstateFile
+
+	bulkFile, err := os.OpenFile("bulk", os.O_CREATE|os.O_RDWR|os.O_APPEND|fileFlags, 0644)
+	if err != nil {
+		panic(err)
+	}
+	s.walBulkFile = bulkFile
 
 	go s.DbHandler()
 
