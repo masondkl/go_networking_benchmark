@@ -184,30 +184,40 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			walEntries := grouped[walIndex]
 			slot := s.walSlots[walIndex]
 			go func() {
+				buffer := s.pool.Get().([]byte)
+				requiredSize := 0
 				for entryIndex := range walEntries {
 					entry := walEntries[entryIndex]
-					buffer := s.pool.Get().([]byte)
-					size, err := entry.MarshalTo(buffer)
+					requiredSize += entry.Size()
+				}
+				if cap(buffer) < requiredSize {
+					buffer = append(buffer, make([]byte, requiredSize-len(buffer))...)
+					buffer = buffer[:cap(buffer)]
+				}
+				offset := 0
+				for entryIndex := range walEntries {
+					entry := walEntries[entryIndex]
+					size, err := entry.MarshalTo(buffer[offset:])
 					if err != nil {
 						panic(err)
 					}
-					slot.mutex.Lock()
-					count := 0
-					for {
-						//wrote, err := slot.file.WriteAt(buffer[count:size], int64(slot.offset+count))
-						wrote, err := slot.file.Write(buffer[count:size])
-						if err != nil {
-							panic(err)
-						}
-						count += wrote
-						if count == size {
-							break
-						}
-					}
-					slot.mutex.Unlock()
-					s.pool.Put(buffer)
+					offset += size
 					group.Done()
 				}
+				slot.mutex.Lock()
+				count := 0
+				for {
+					wrote, err := slot.file.Write(buffer[count:requiredSize])
+					if err != nil {
+						panic(err)
+					}
+					count += wrote
+					if count == requiredSize {
+						break
+					}
+				}
+				slot.mutex.Unlock()
+				s.pool.Put(buffer)
 				if *manual == "fsync" {
 					err := syscall.Fsync(int(slot.file.Fd()))
 					if err != nil {
@@ -348,6 +358,7 @@ func NewServer() *Server {
 	} else if *flags == "sync" {
 		fileFlags = syscall.O_SYNC
 	}
+
 	for i := range *walFileCount {
 		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|os.O_APPEND|fileFlags, 0644)
 		if err != nil {
@@ -417,10 +428,10 @@ func startProfiling() {
 func StartServer() {
 	flag.Parse()
 	grouped = make(map[uint64][]raftpb.Entry)
-	//err := wipeWorkingDirectory()
-	//if err != nil {
-	//	panic(err)
-	//}
+	err := wipeWorkingDirectory()
+	if err != nil {
+		panic(err)
+	}
 	SetupKeyBucket()
 	//startProfiling()
 	NewServer().run()

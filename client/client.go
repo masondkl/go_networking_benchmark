@@ -373,10 +373,6 @@ func displayResults(
 	writeCount int,
 	readCount int,
 ) {
-	fmt.Printf("Write count: %d\n", writeCount)
-	fmt.Printf("Read count: %d\n", readCount)
-	fmt.Printf("Total count: %d\n", count)
-
 	sort.Ints(clientTimes[:count])
 	sort.Ints(clientWriteTimes[:writeCount])
 	sort.Ints(clientReadTimes[:readCount])
@@ -384,7 +380,6 @@ func displayResults(
 	avgAll := 0
 	maxAll := math.MinInt32
 	minAll := math.MaxInt32
-	minIndex := 0
 	for i := range count {
 		timeAll := clientTimes[i]
 		avgAll += timeAll
@@ -393,10 +388,8 @@ func displayResults(
 		}
 		if timeAll < minAll {
 			minAll = timeAll
-			minIndex = i
 		}
 	}
-	fmt.Printf("Read Min: %d\n", minIndex)
 
 	avgAll /= count
 
@@ -411,11 +404,9 @@ func displayResults(
 		}
 		if timeWrite < minWrite {
 			minWrite = timeWrite
-			minIndex = i
 		}
 	}
 
-	fmt.Printf("Write Min: %d\n", minIndex)
 	if writeCount > 0 {
 		avgWrite /= writeCount
 	}
