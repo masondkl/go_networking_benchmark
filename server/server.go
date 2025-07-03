@@ -219,6 +219,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 						return
 					}
 				}
+				group.Done()
 			}()
 		}
 		group.Wait()
