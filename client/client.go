@@ -243,7 +243,7 @@ func (client *Client) benchmark() {
 
 	end := time.Now().UnixMilli()
 	benchmarkBar.Wait()
-	displayResults(start, end, clientTimes, clientWriteTimes, clientReadTimes, int(count), int(writeCount), int(readCount))
+	client.displayResults(start, end, clientTimes, clientWriteTimes, clientReadTimes, int(count), int(writeCount), int(readCount))
 }
 
 func (client *Client) warmup() {
@@ -363,7 +363,7 @@ func (client *Client) warmup() {
 	warmupBar.Wait()
 }
 
-func displayResults(
+func (client *Client) displayResults(
 	start int64,
 	end int64,
 	clientTimes []int,
@@ -427,9 +427,11 @@ func displayResults(
 	if readCount > 0 {
 		avgRead /= readCount
 	}
-
+	fmt.Printf("Benchmark complete!\n")
+	fmt.Printf("Connections: %d\n", client.NumClients*client.TotalAddresses)
+	fmt.Printf("Data Size: %d\n", client.DataSize)
 	if writeCount > 0 && readCount > 0 {
-		fmt.Printf("\nAll - Count(%d) OPS(%d) Avg(%d) Min(%d) Max(%d) 50th(%d) 90th(%d) 95th(%d) 99th(%d) 99.9th(%d) 99.99th(%d)\n",
+		fmt.Printf("All - Count(%d) OPS(%d) Avg(%d) Min(%d) Max(%d) 50th(%d) 90th(%d) 95th(%d) 99th(%d) 99.9th(%d) 99.99th(%d)\n",
 			count, int(float32(count)/(float32(end-start)/1000.0)), avgAll, minAll, maxAll,
 			clientTimes[int(float32(count)*0.5)],
 			clientTimes[int(float32(count)*0.9)],
@@ -440,7 +442,7 @@ func displayResults(
 		)
 	}
 	if writeCount > 0 {
-		fmt.Printf("\nUpdate - Count(%d) OPS(%d) Avg(%d) Min(%d) Max(%d) 50th(%d) 90th(%d) 95th(%d) 99th(%d) 99.9th(%d) 99.99th(%d)\n",
+		fmt.Printf("Update - Count(%d) OPS(%d) Avg(%d) Min(%d) Max(%d) 50th(%d) 90th(%d) 95th(%d) 99th(%d) 99.9th(%d) 99.99th(%d)\n",
 			writeCount, int(float32(writeCount)/(float32(end-start)/1000.0)), avgWrite, minWrite, maxWrite,
 			clientWriteTimes[int(float32(writeCount)*0.5)],
 			clientWriteTimes[int(float32(writeCount)*0.9)],
@@ -451,7 +453,7 @@ func displayResults(
 		)
 	}
 	if readCount > 0 {
-		fmt.Printf("\nRead - Count(%d) OPS(%d) Avg(%d) Min(%d) Max(%d) 50th(%d) 90th(%d) 95th(%d) 99th(%d) 99.9th(%d) 99.99th(%d)\n",
+		fmt.Printf("Read - Count(%d) OPS(%d) Avg(%d) Min(%d) Max(%d) 50th(%d) 90th(%d) 95th(%d) 99th(%d) 99.9th(%d) 99.99th(%d)\n",
 			readCount, int(float32(readCount)/(float32(end-start)/1000.0)), avgRead, minRead, maxRead,
 			clientReadTimes[int(float32(readCount)*0.5)],
 			clientReadTimes[int(float32(readCount)*0.9)],
