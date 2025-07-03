@@ -172,46 +172,60 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 	}
 	if !(*memory) {
 		group := sync.WaitGroup{}
-		group.Add(len(entries))
+
 		for _, e := range entries {
-			go func(entry raftpb.Entry) {
+			walIndex := e.Index % uint64(*walFileCount)
+			grouped[walIndex] = append(grouped[walIndex], e)
+		}
+
+		group.Add(len(entries))
+
+		for walIndex := range grouped {
+			walEntries := grouped[walIndex]
+			slot := s.walSlots[walIndex]
+			go func() {
 				buffer := s.pool.Get().([]byte)
-				size, err := entry.MarshalTo(buffer)
+
+				entry := walEntries[len(walEntries)-1]
+				size, err := entry.MarshalTo(buffer[0:])
 				if err != nil {
 					panic(err)
 				}
-				walIndex := entry.Index % uint64(*walFileCount)
-				slot := s.walSlots[walIndex]
+
 				slot.mutex.Lock()
-				count := int64(0)
+				count := 0
 				for {
-					wrote, err := slot.file.WriteAt(buffer[count:size], count)
+					wrote, err := slot.file.Write(buffer[count:size])
 					if err != nil {
 						panic(err)
 					}
-					count += int64(wrote)
-					if count == int64(size) {
+					count += wrote
+					if count == size {
 						break
 					}
 				}
+				slot.mutex.Unlock()
+				s.pool.Put(buffer)
 				if *manual == "fsync" {
-					err = syscall.Fsync(int(slot.file.Fd()))
+					err := syscall.Fsync(int(slot.file.Fd()))
 					if err != nil {
 						fmt.Println("Error fsyncing file: ", err)
 						return
 					}
 				} else if *manual == "dsync" {
-					err = syscall.Fdatasync(int(slot.file.Fd()))
+					err := syscall.Fdatasync(int(slot.file.Fd()))
 					if err != nil {
 						fmt.Println("Error fsyncing file: ", err)
 						return
 					}
 				}
-				slot.mutex.Unlock()
-				group.Done()
-			}(e)
+			}()
 		}
 		group.Wait()
+
+		for k := range grouped {
+			delete(grouped, k)
+		}
 	}
 }
 
@@ -334,7 +348,7 @@ func NewServer() *Server {
 	}
 
 	for i := range *walFileCount {
-		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|fileFlags, 0644)
+		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|os.O_APPEND|fileFlags, 0644)
 		if err != nil {
 			panic(err)
 		}
