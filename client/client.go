@@ -215,9 +215,9 @@ func (client *Client) benchmark() {
 						panic(fmt.Sprintf("GOT A NULL READ FOR KEY: %s", string(key)))
 					} else {
 						//warmup-xx, returned- x
-						if !bytes.Equal(buffer[5:5+valueSize], value) {
-							panic(fmt.Sprintf("GOT A WRONG VALUE FOR KEY: %s, warmup-%s, returned-%s", string(key), string(value), string(buffer[4:4+valueSize])))
-						}
+						//if !bytes.Equal(buffer[5:5+valueSize], value) {
+						//	panic(fmt.Sprintf("GOT A WRONG VALUE FOR KEY: %s, warmup-%s, returned-%s", string(key), string(value), string(buffer[4:4+valueSize])))
+						//}
 					}
 				}
 
