@@ -191,6 +191,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 					requiredSize += entry.Size()
 				}
 				if cap(buffer) < requiredSize {
+					fmt.Printf("reallocating: %d < %d\n", cap(buffer), requiredSize)
 					buffer = append(buffer, make([]byte, requiredSize-len(buffer))...)
 					buffer = buffer[:cap(buffer)]
 				}
@@ -207,7 +208,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 				slot.mutex.Lock()
 				count := 0
 				for {
-					wrote, err := slot.file.Write(buffer[count:requiredSize])
+					wrote, err := slot.file.WriteAt(buffer[count:requiredSize], 0)
 					if err != nil {
 						panic(err)
 					}
@@ -360,7 +361,7 @@ func NewServer() *Server {
 	}
 
 	for i := range *walFileCount {
-		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|os.O_APPEND|fileFlags, 0644)
+		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|fileFlags, 0644)
 		if err != nil {
 			panic(err)
 		}
