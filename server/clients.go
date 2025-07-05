@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"net"
 	"networking_benchmark/shared"
@@ -13,6 +14,7 @@ import (
 func (s *Server) handleClientConnection(conn net.Conn) {
 	writeLock := &sync.Mutex{}
 	readBuffer := make([]byte, 1000000)
+	leaderBuffer := make([]byte, 1)
 
 	for {
 		if err := shared.Read(conn, readBuffer[:4]); err != nil {
@@ -23,6 +25,22 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 		if err := shared.Read(conn, readBuffer[:amount]); err != nil {
 			log.Printf("Error reading message: %v", err)
 			return
+		}
+
+		if readBuffer[0] == shared.OP_LEADER {
+			fmt.Printf("Got op leader\n")
+			if s.node.Status().Lead == s.config.ID {
+				fmt.Printf("Responding with 1 %d, %d\n", s.leader, s.config.ID)
+				leaderBuffer[0] = 1
+			} else {
+				fmt.Printf("Responding with 0\n")
+				leaderBuffer[0] = 0
+			}
+			err := shared.Write(conn, leaderBuffer)
+			if err != nil {
+				panic(err)
+			}
+			continue
 		}
 
 		s.handleClientMessage(conn, writeLock, readBuffer[:amount])
@@ -63,7 +81,7 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
 
 		peerIdx := s.leader - 1
-		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(*numPeerConnections)
+		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 		conn := s.peerConnections[peerIdx][connIdx]
 
 		go func() {
@@ -113,7 +131,7 @@ func (s *Server) respondToClient(op byte, index uint32, data []byte) {
 }
 
 func (s *Server) startClientListener() {
-	listener, err := net.Listen("tcp", *clientListenAddress)
+	listener, err := net.Listen("tcp", s.flags.ClientListenAddress)
 	if err != nil {
 		panic(err)
 	}

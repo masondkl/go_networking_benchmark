@@ -50,7 +50,7 @@ func (s *Server) sendMessageToPeer(msg raftpb.Message) {
 
 	binary.LittleEndian.PutUint32(buffer[0:4], uint32(size+1))
 	peerIdx := msg.To - 1
-	connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(*numPeerConnections)
+	connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 	conn := s.peerConnections[peerIdx][connIdx]
 
 	conn.WriteLock.Lock()
@@ -147,7 +147,7 @@ func (s *Server) connectToPeer(peerIdx, connIdx int) {
 		}
 
 		bytes := make([]byte, 4)
-		binary.LittleEndian.PutUint32(bytes, uint32(*nodeIndex))
+		binary.LittleEndian.PutUint32(bytes, uint32(s.flags.NodeIndex))
 		if err := shared.Write(conn, bytes); err != nil {
 			panic(err)
 		}
@@ -166,12 +166,12 @@ func (s *Server) setupPeerConnections() {
 	s.peerConnRoundRobins = make([]uint32, numPeers)
 
 	for p := range numPeers {
-		if p == *nodeIndex {
+		if p == s.flags.NodeIndex {
 			continue
 		}
 		s.peerConnRoundRobins[p] = 0
-		s.peerConnections[p] = make([]shared.PeerConnection, *numPeerConnections)
-		for c := range *numPeerConnections {
+		s.peerConnections[p] = make([]shared.PeerConnection, s.flags.NumPeerConnections)
+		for c := range s.flags.NumPeerConnections {
 			fmt.Printf("Trying to connect to peer %d\n", p)
 			s.connectToPeer(p, c)
 			fmt.Printf("Peer %d connected\n", p)
@@ -180,7 +180,7 @@ func (s *Server) setupPeerConnections() {
 }
 
 func (s *Server) startPeerListener() {
-	listener, err := net.Listen("tcp", *peerListenAddress)
+	listener, err := net.Listen("tcp", s.flags.PeerListenAddress)
 	if err != nil {
 		panic(err)
 	}

@@ -3,14 +3,14 @@ package client
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"net"
 	"networking_benchmark/shared"
-	"os"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,37 +36,118 @@ type Client struct {
 	UpdateValues [][]byte
 }
 
-func StartClient() {
-	addresses := strings.Split(os.Args[2], ",")
+//var (
+//	nodeIndex           = flag.Int("node", 0, "node index")
+//	poolDataSize        = flag.Int("pool-data-size", 0, "pool data size")
+//	poolWarmupSize      = flag.Int("pool-warmup-size", 0, "pool warmup size")
+//	numPeerConnections  = flag.Int("peer-connections", 0, "number of peer connections")
+//	peerListenAddress   = flag.String("peer-listen", "", "peer listen address")
+//	clientListenAddress = flag.String("client-listen", "", "client listen address")
+//	peerAddressesString = flag.String("peer-addresses", "", "comma-separated peer addresses")
+//	walFileCount        = flag.Int("wal-file-count", 0, "wal file count")
+//	manual              = flag.String("manual", "none", "fsync, dsync, or none")
+//	flags               = flag.String("flags", "none", "fsync, dsync, sync, none")
+//	memory              = flag.Bool("memory", false, "use memory")
+//)
+
+var ()
+
+func StartClient(args []string) {
+	fs := flag.NewFlagSet("client", flag.ExitOnError)
+	var (
+		addressesCSV  string
+		dataSize      int
+		numOps        int
+		readRatio     float64
+		numClients    int
+		isReadMemory  bool
+		isWriteMemory bool
+		isFindLeader  bool
+	)
+
+	fs.StringVar(&addressesCSV, "addresses", "", "comma‑separated TCP addresses")
+	fs.IntVar(&dataSize, "data-size", 0, "payload size in bytes")
+	fs.IntVar(&numOps, "ops", 0, "total operations per client")
+	fs.Float64Var(&readRatio, "read-ratio", 0.5, "fraction of reads 0–1")
+	fs.IntVar(&numClients, "clients", 1, "number of concurrent clients")
+	fs.BoolVar(&isReadMemory, "read-mem", false, "read from memory")
+	fs.BoolVar(&isWriteMemory, "write-mem", false, "write to memory")
+	fs.BoolVar(&isFindLeader, "find-leader", false, "check the provided addresses and find the leader node")
+
+	err := fs.Parse(args)
+	if err != nil {
+		panic(err)
+	}
+
+	if addressesCSV == "" {
+		log.Fatalf("-addresses is required")
+	}
+	if dataSize <= 0 {
+		log.Fatalf("-data-size must be > 0")
+	}
+	if numOps <= 0 {
+		log.Fatalf("-ops must be > 0")
+	}
+	if readRatio < 0 || readRatio > 1 {
+		log.Fatalf("-read-ratio must be between 0 and 1")
+	}
+	if numClients <= 0 {
+		log.Fatalf("-clients must be > 0")
+	}
+
+	addresses := strings.Split(addressesCSV, ",")
 	totalAddresses := len(addresses)
-	dataSize, err := strconv.Atoi(os.Args[3])
-	if err != nil {
-		panic(err)
-	}
 
-	numOps, err := strconv.Atoi(os.Args[4])
-	if err != nil {
-		panic(err)
-	}
+	if isFindLeader {
+		connections := make([]net.Conn, totalAddresses)
+		leaderGroup := sync.WaitGroup{}
+		leaderIndex := -1
+		leaderGroup.Add(1)
+		for i := range totalAddresses {
+			var connection net.Conn
+			for {
+				connection, err = net.Dial("tcp", addresses[i])
+				if err != nil {
+					time.Sleep(250 * time.Millisecond)
+					continue
+				}
+				break
+			}
+			connections[i] = connection
+			go func() {
+				buffer := make([]byte, 5)
 
-	readRatio, err := strconv.ParseFloat(os.Args[5], 32)
-	if err != nil {
-		panic(err)
-	}
+				for {
+					binary.LittleEndian.PutUint32(buffer[:4], 1)
+					buffer[4] = shared.OP_LEADER
 
-	numClients, err := strconv.Atoi(os.Args[6])
-	if err != nil {
-		panic(err)
-	}
+					err = shared.Write(connection, buffer[:])
+					if err != nil {
+						break
+					}
+					err = shared.Read(connection, buffer[:1])
+					if err != nil {
+						break
+					}
+					if buffer[0] == byte(1) {
+						leaderGroup.Done()
+						leaderIndex = i
+						break
+					}
+					time.Sleep(250 * time.Millisecond)
+				}
+			}()
+		}
+		leaderGroup.Wait()
+		for i := range connections {
+			connections[i].Close()
+		}
 
-	isReadMemory := os.Args[7]
-	if isReadMemory != "true" && isReadMemory != "false" {
-		panic("Must pass in true or false for read in memory!")
-	}
-
-	isWriteMemory := os.Args[8]
-	if isWriteMemory != "true" && isWriteMemory != "false" {
-		panic("Must pass in true or false for write in memory!")
+		leaderAddress := addresses[leaderIndex]
+		addresses = make([]string, 1)
+		addresses[0] = leaderAddress
+		totalAddresses = 1
+		fmt.Printf("%d\n", leaderIndex)
 	}
 
 	numClientOps := numOps / (numClients * totalAddresses)
@@ -82,8 +163,8 @@ func StartClient() {
 		Keys:           make([][]byte, numOps),
 		WarmupValues:   make([][]byte, numOps),
 		UpdateValues:   make([][]byte, numOps),
-		IsReadMemory:   isReadMemory == "true",
-		IsWriteMemory:  isWriteMemory == "true",
+		IsReadMemory:   isReadMemory,
+		IsWriteMemory:  isWriteMemory,
 	}
 
 	for i := 0; i < numOps; i++ {
@@ -427,7 +508,7 @@ func (client *Client) displayResults(
 	if readCount > 0 {
 		avgRead /= readCount
 	}
-	fmt.Printf("Benchmark complete!\n")
+	fmt.Printf("\nBenchmark complete!\n")
 	fmt.Printf("Connections: %d\n", client.NumClients*client.TotalAddresses)
 	fmt.Printf("Data Size: %d\n", client.DataSize)
 	if writeCount > 0 && readCount > 0 {

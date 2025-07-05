@@ -23,19 +23,19 @@ import (
 	"time"
 )
 
-var (
-	nodeIndex           = flag.Int("node", 0, "node index")
-	poolDataSize        = flag.Int("pool-data-size", 0, "pool data size")
-	poolWarmupSize      = flag.Int("pool-warmup-size", 0, "pool warmup size")
-	numPeerConnections  = flag.Int("peer-connections", 0, "number of peer connections")
-	peerListenAddress   = flag.String("peer-listen", "", "peer listen address")
-	clientListenAddress = flag.String("client-listen", "", "client listen address")
-	peerAddressesString = flag.String("peer-addresses", "", "comma-separated peer addresses")
-	walFileCount        = flag.Int("wal-file-count", 0, "wal file count")
-	manual              = flag.String("manual", "none", "fsync, dsync, or none")
-	flags               = flag.String("flags", "none", "fsync, dsync, sync, none")
-	memory              = flag.Bool("memory", false, "use memory")
-)
+type ServerFlags struct {
+	NodeIndex           int
+	PoolDataSize        int
+	PoolWarmupSize      int
+	NumPeerConnections  int
+	PeerListenAddress   string
+	ClientListenAddress string
+	PeerAddressesString string
+	WalFileCount        int
+	Manual              string
+	Flags               string
+	Memory              bool
+}
 
 var OP_FORWARD = byte(0)
 var OP_MESSAGE = byte(1)
@@ -63,19 +63,17 @@ type Server struct {
 	dbChannel           chan []byte
 	leader              uint32
 	poolSize            uint32
+	flags               *ServerFlags
 }
 
 func (s *Server) initPool() {
-	if *poolDataSize%4096 != 0 {
-		fmt.Println("Pool data size is not a multiple of 4096 block size")
-	}
 	s.pool = sync.Pool{
 		New: func() interface{} {
-			return make([]byte, *poolDataSize)
+			return make([]byte, s.flags.PoolDataSize)
 		},
 	}
 
-	stored := make([][]byte, *poolWarmupSize)
+	stored := make([][]byte, s.flags.PoolWarmupSize)
 	for i := range stored {
 		stored[i] = s.pool.Get().([]byte)
 	}
@@ -83,7 +81,7 @@ func (s *Server) initPool() {
 		s.pool.Put(stored[i])
 	}
 
-	//atomic.AddUint32(&s.poolSize, uint32(*poolWarmupSize))
+	//atomic.AddUint32(&s.poolSize, uint32(*PoolWarmupSize))
 
 	//go func() {
 	//	for {
@@ -96,7 +94,7 @@ func (s *Server) initPool() {
 func (s *Server) setupRaft() {
 	s.storage = raft.NewMemoryStorage()
 	s.config = &raft.Config{
-		ID:              uint64(*nodeIndex + 1),
+		ID:              uint64(s.flags.NodeIndex + 1),
 		ElectionTick:    10,
 		HeartbeatTick:   5,
 		Storage:         s.storage,
@@ -119,7 +117,7 @@ func (s *Server) setupRaft() {
 
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
-		if !(*memory) {
+		if !(s.flags.Memory) {
 			buffer := s.pool.Get().([]byte)
 			size, err := hs.MarshalTo(buffer)
 			if err != nil {
@@ -137,14 +135,14 @@ func (s *Server) processHardState(hs raftpb.HardState) {
 					break
 				}
 			}
-			if *manual == "fsync" {
+			if s.flags.Manual == "fsync" {
 				fd := int(s.hardstateFile.Fd())
 				err = syscall.Fsync(fd)
 				if err != nil {
 					fmt.Println("Error fsyncing file: ", err)
 					return
 				}
-			} else if *manual == "dsync" {
+			} else if s.flags.Manual == "dsync" {
 				fd := int(s.hardstateFile.Fd())
 				err = syscall.Fdatasync(fd)
 				if err != nil {
@@ -171,11 +169,10 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			log.Printf("Append entries error: %v", err)
 		}
 	}
-	if !(*memory) {
-		fmt.Printf("Entries: %d\n", len(entries))
+	if !(s.flags.Memory) {
 		group := sync.WaitGroup{}
 		for _, e := range entries {
-			walIndex := e.Index % uint64(*walFileCount)
+			walIndex := e.Index % uint64(s.flags.WalFileCount)
 			grouped[walIndex] = append(grouped[walIndex], e)
 		}
 
@@ -208,13 +205,13 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 					}
 				}
 				s.pool.Put(buffer)
-				if *manual == "fsync" {
+				if s.flags.Manual == "fsync" {
 					err := syscall.Fsync(int(slot.file.Fd()))
 					if err != nil {
 						fmt.Println("Error fsyncing file: ", err)
 						return
 					}
-				} else if *manual == "dsync" {
+				} else if s.flags.Manual == "dsync" {
 					err := syscall.Fdatasync(int(slot.file.Fd()))
 					if err != nil {
 						fmt.Println("Error fsyncing file: ", err)
@@ -330,27 +327,29 @@ func wipeWorkingDirectory() error {
 	return nil
 }
 
-func NewServer() *Server {
+func NewServer(serverFlags *ServerFlags) *Server {
 	s := &Server{
-		peerAddresses:  strings.Split(*peerAddressesString, ","),
+		leader:         10000, //TODO: maybe change this i just need it to not be 0 instantly
+		peerAddresses:  strings.Split(serverFlags.PeerAddressesString, ","),
 		shutdownChan:   make(chan struct{}),
-		walSlots:       make([]WalSlot, *walFileCount),
+		walSlots:       make([]WalSlot, serverFlags.WalFileCount),
 		hardstateMutex: &sync.Mutex{},
 		dbChannel:      make(chan []byte, 10000000),
+		flags:          serverFlags,
 	}
 
 	s.initPool()
 
 	fileFlags := 0
-	if *flags == "fsync" {
+	if serverFlags.Flags == "fsync" {
 		fileFlags = syscall.O_FSYNC
-	} else if *flags == "dsync" {
+	} else if serverFlags.Flags == "dsync" {
 		fileFlags = syscall.O_DSYNC
-	} else if *flags == "sync" {
+	} else if serverFlags.Flags == "sync" {
 		fileFlags = syscall.O_SYNC
 	}
 
-	for i := range *walFileCount {
+	for i := range serverFlags.WalFileCount {
 		f, err := os.OpenFile(strconv.Itoa(i), os.O_CREATE|os.O_RDWR|os.O_APPEND|fileFlags, 0644)
 		if err != nil {
 			panic(err)
@@ -422,14 +421,85 @@ func startProfiling() {
 	}()
 }
 
-func StartServer() {
-	flag.Parse()
+func StartServer(args []string) {
+	fs := flag.NewFlagSet("server", flag.ExitOnError)
+	var (
+		NodeIndex           = fs.Int("node", 0, "node index")
+		PoolDataSize        = fs.Int("pool-data-size", 0, "pool data size")
+		PoolWarmupSize      = fs.Int("pool-warmup-size", 0, "pool warmup size")
+		NumPeerConnections  = fs.Int("peer-connections", 0, "number of peer connections")
+		PeerListenAddress   = fs.String("peer-listen", "", "peer listen address")
+		ClientListenAddress = fs.String("client-listen", "", "client listen address")
+		PeerAddressesString = fs.String("peer-addresses", "", "comma-separated peer addresses")
+		WalFileCount        = fs.Int("wal-file-count", 1, "wal file count")
+		Manual              = fs.String("manual", "none", "fsync, dsync, or none")
+		Flags               = fs.String("flags", "none", "fsync, dsync, sync, none")
+		Memory              = fs.Bool("memory", false, "use Memory")
+	)
+	err := fs.Parse(args)
+	if err != nil {
+		panic(err)
+	}
+	flags := &ServerFlags{
+		*NodeIndex,
+		*PoolDataSize,
+		*PoolWarmupSize,
+		*NumPeerConnections,
+		*PeerListenAddress,
+		*ClientListenAddress,
+		*PeerAddressesString,
+		*WalFileCount,
+		*Manual,
+		*Flags,
+		*Memory,
+	}
+
+	if *PoolDataSize <= 0 {
+		log.Fatalf("-pool-data-size must be > 0")
+	}
+	if *PoolWarmupSize < 0 {
+		log.Fatalf("-pool-warmup-size cannot be negative")
+	}
+	if *NumPeerConnections <= 0 {
+		log.Fatalf("-peer-connections must be > 0")
+	}
+	if *PeerListenAddress == "" {
+		log.Fatalf("-peer-listen is required")
+	}
+	if *ClientListenAddress == "" {
+		log.Fatalf("-client-listen is required")
+	}
+	if *PeerAddressesString == "" {
+		log.Fatalf("-peer-addresses is required (comma‑separated list)")
+	}
+	peers := strings.Split(*PeerAddressesString, ",")
+	if *NodeIndex < 0 || *NodeIndex >= len(peers) {
+		log.Fatalf("-node (%d) out of range; only %d peer addresses supplied",
+			*NodeIndex, len(peers))
+	}
+	if *WalFileCount <= 0 {
+		log.Fatalf("-wal-file-count must be > 0")
+	}
+	switch *Manual {
+	case "none", "fsync", "dsync":
+	default:
+		log.Fatalf(`-manual must be "none", "fsync", or "dsync" (got %q)`, *Manual)
+	}
+	switch *Flags {
+	case "none", "fsync", "dsync", "sync":
+	default:
+		log.Fatalf(`-flags must be "none", "fsync", "dsync", or "sync" (got %q)`, *Flags)
+	}
+	if *Manual != "none" && *Flags != "none" {
+		log.Fatalf("choose either -manual or -flags (not both)")
+	}
+
 	grouped = make(map[uint64][]raftpb.Entry)
-	err := wipeWorkingDirectory()
+	err = wipeWorkingDirectory()
 	if err != nil {
 		panic(err)
 	}
 	SetupKeyBucket()
 	//startProfiling()
-	NewServer().run()
+	NewServer(flags).run()
 }
