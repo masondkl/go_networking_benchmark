@@ -94,7 +94,6 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 }
 
 func (s *Server) respondToClient(op byte, index uint32, data []byte) {
-
 	senderAny, ok := s.senders.LoadAndDelete(index)
 	//fmt.Printf("Removing index: %d\n", index)
 	buffer := s.pool.Get().([]byte)

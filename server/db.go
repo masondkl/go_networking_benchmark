@@ -102,12 +102,18 @@ func (s *Server) DbHandler() {
 				valueSize := binary.LittleEndian.Uint32(data[keySize+14:])
 				value := data[keySize+18 : keySize+18+valueSize]
 				memoryDb[string(key)] = value
+				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
+					go s.respondToClient(shared.OP_WRITE_MEMORY, messageIndex, nil)
+				}
 			} else if op == shared.OP_WRITE {
 				valueSize := binary.LittleEndian.Uint32(data[keySize+14:])
 				value := data[keySize+18 : keySize+18+valueSize]
 				err := Put(key, value)
 				if err != nil {
 					panic(err)
+				}
+				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
+					go s.respondToClient(shared.OP_WRITE, messageIndex, nil)
 				}
 			} else if ownerIndex == uint32(s.config.ID) {
 				if op == shared.OP_READ_MEMORY {

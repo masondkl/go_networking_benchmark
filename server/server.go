@@ -35,6 +35,7 @@ type ServerFlags struct {
 	Manual              string
 	Flags               string
 	Memory              bool
+	FastPathWrites      bool
 }
 
 //var OP_FORWARD = byte(0)
@@ -252,13 +253,12 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	if len(entry.Data) >= 8 {
 		messageIndex := binary.LittleEndian.Uint32(entry.Data[1:5])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[5:9])
-		//fmt.Printf("MsgIndex: %d, OwnerIndex: %d\n", messageIndex, ownerIndex)
-		//dataCopy := s.pool.Get().([]byte)
-		//dataCopy.
 		op := entry.Data[9]
 		s.dbChannel <- entry.Data
-		if ownerIndex == uint32(s.config.ID) && (op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY) {
-			go s.respondToClient(op, messageIndex, nil)
+		if s.flags.FastPathWrites {
+			if ownerIndex == uint32(s.config.ID) && (op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY) {
+				go s.respondToClient(op, messageIndex, nil)
+			}
 		}
 	}
 }
@@ -431,6 +431,7 @@ func StartServer(args []string) {
 		Manual              = fs.String("manual", "none", "fsync, dsync, or none")
 		Flags               = fs.String("flags", "none", "fsync, dsync, sync, none")
 		Memory              = fs.Bool("memory", false, "use Memory")
+		FastPathWrites      = fs.Bool("fast-path-writes", false, "Skip waiting to apply ")
 	)
 	err := fs.Parse(args)
 	if err != nil {
@@ -448,6 +449,7 @@ func StartServer(args []string) {
 		*Manual,
 		*Flags,
 		*Memory,
+		*FastPathWrites,
 	}
 
 	if *PoolDataSize <= 0 {
