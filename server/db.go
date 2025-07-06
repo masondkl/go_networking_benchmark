@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/google/uuid"
 	"go.etcd.io/bbolt"
 	"networking_benchmark/shared"
 )
@@ -93,27 +94,28 @@ func (s *Server) DbHandler() {
 	for {
 		select {
 		case data := <-s.dbChannel:
-			messageIndex := binary.LittleEndian.Uint32(data[1:5])
-			ownerIndex := binary.LittleEndian.Uint32(data[5:9])
-			op := data[9]
-			keySize := binary.LittleEndian.Uint32(data[10:14])
-			key := data[14 : keySize+14]
+			//messageIndex := binary.LittleEndian.Uint32(data[1:5])
+			messageId := uuid.UUID(data[:16])
+			ownerIndex := binary.LittleEndian.Uint32(data[16:20])
+			op := data[20]
+			keySize := binary.LittleEndian.Uint32(data[21:25])
+			key := data[25 : keySize+25]
 			if op == shared.OP_WRITE_MEMORY {
-				valueSize := binary.LittleEndian.Uint32(data[keySize+14:])
-				value := data[keySize+18 : keySize+18+valueSize]
+				valueSize := binary.LittleEndian.Uint32(data[keySize+25:])
+				value := data[keySize+29 : keySize+29+valueSize]
 				memoryDb[string(key)] = value
 				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
-					go s.respondToClient(shared.OP_WRITE_MEMORY, messageIndex, nil)
+					go s.respondToClient(shared.OP_WRITE_MEMORY, messageId, nil)
 				}
 			} else if op == shared.OP_WRITE {
-				valueSize := binary.LittleEndian.Uint32(data[keySize+14:])
-				value := data[keySize+18 : keySize+18+valueSize]
+				valueSize := binary.LittleEndian.Uint32(data[keySize+25:])
+				value := data[keySize+29 : keySize+29+valueSize]
 				err := Put(key, value)
 				if err != nil {
 					panic(err)
 				}
 				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
-					go s.respondToClient(shared.OP_WRITE, messageIndex, nil)
+					go s.respondToClient(shared.OP_WRITE, messageId, nil)
 				}
 			} else if ownerIndex == uint32(s.config.ID) {
 				if op == shared.OP_READ_MEMORY {
@@ -121,13 +123,13 @@ func (s *Server) DbHandler() {
 					if value == nil {
 						fmt.Println("No key found")
 					}
-					go s.respondToClient(shared.OP_READ_MEMORY, messageIndex, value)
+					go s.respondToClient(shared.OP_READ_MEMORY, messageId, value)
 				} else if op == shared.OP_READ {
 					value, err := Get(key)
 					if err != nil {
 						panic(err)
 					}
-					go s.respondToClient(shared.OP_READ, messageIndex, value)
+					go s.respondToClient(shared.OP_READ, messageId, value)
 				}
 			}
 		}

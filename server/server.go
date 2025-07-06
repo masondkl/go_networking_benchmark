@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"flag"
 	"fmt"
+	"github.com/google/uuid"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"log"
@@ -38,8 +39,8 @@ type ServerFlags struct {
 	FastPathWrites      bool
 }
 
-//var OP_FORWARD = byte(0)
-//var OP_MESSAGE = byte(1)
+// var OP_FORWARD = byte(0)
+// var OP_MESSAGE = byte(1)
 
 type WalSlot struct {
 	file  *os.File
@@ -48,7 +49,6 @@ type WalSlot struct {
 
 type Server struct {
 	senders             sync.Map
-	opIndex             uint32
 	peerAddresses       []string
 	pool                sync.Pool
 	node                raft.Node
@@ -251,13 +251,13 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	//fmt.Printf("Processing commited entry: %v\n", entry)
 	if len(entry.Data) >= 8 {
-		messageIndex := binary.LittleEndian.Uint32(entry.Data[1:5])
-		ownerIndex := binary.LittleEndian.Uint32(entry.Data[5:9])
-		op := entry.Data[9]
+		messageId := uuid.UUID(entry.Data[:16])
+		ownerIndex := binary.LittleEndian.Uint32(entry.Data[16:20])
+		op := entry.Data[20]
 		s.dbChannel <- entry.Data
 		if s.flags.FastPathWrites {
 			if ownerIndex == uint32(s.config.ID) && (op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY) {
-				go s.respondToClient(op, messageIndex, nil)
+				go s.respondToClient(op, messageId, nil)
 			}
 		}
 	}
@@ -268,13 +268,30 @@ func (s *Server) processSnapshot(snap raftpb.Snapshot) {
 		log.Println("Processing snapshot")
 	}
 }
+func (s *Server) processReadStates(readStates []raft.ReadState) {
+	for _, rs := range readStates {
+		messageId := uuid.UUID(rs.RequestCtx)
 
+		val, ok := s.senders.Load(messageId)
+		if !ok {
+			panic(fmt.Sprintf("Sender not found for messageId-%d", messageId))
+		}
+
+		readReq, ok := val.(shared.PendingRead)
+		if !ok {
+			panic(fmt.Sprintf("Invalid type in senders map for messageId-%d", messageId))
+		}
+
+		s.dbChannel <- readReq.Key
+	}
+}
 func (s *Server) processReady(rd raft.Ready) {
 	s.processHardState(rd.HardState)
 	s.processSnapshot(rd.Snapshot)
 	s.processEntries(rd.Entries)
 	s.processMessages(rd.Messages)
 	s.processCommittedEntries(rd.CommittedEntries)
+	s.processReadStates(rd.ReadStates)
 	s.node.Advance()
 }
 

@@ -11,6 +11,12 @@ const OP_READ = 2
 const OP_READ_MEMORY = 3
 const OP_LEADER = 4
 
+type PendingRead struct {
+	Connection net.Conn
+	WriteLock  *sync.Mutex
+	Key        []byte
+}
+
 func GrowSlice(buffer []byte, requiredSize uint32) []byte {
 	if cap(buffer) < int(requiredSize) {
 		buffer = append(buffer, make([]byte, int(requiredSize)-len(buffer))...)
