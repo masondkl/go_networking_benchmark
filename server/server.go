@@ -172,7 +172,6 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 		count := 0
 		for _, e := range entries {
 			if e.Type == raftpb.EntryNormal {
-				fmt.Printf("data: %d\n", len(e.Data))
 				walIndex := e.Index % uint64(s.flags.WalFileCount)
 				grouped[walIndex] = append(grouped[walIndex], e)
 				count++
@@ -182,7 +181,6 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			return
 		}
 
-		fmt.Printf("Writing to wal\n")
 		group.Add(len(grouped))
 
 		for walIndex := range grouped {
