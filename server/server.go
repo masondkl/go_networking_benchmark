@@ -37,8 +37,8 @@ type ServerFlags struct {
 	Memory              bool
 }
 
-var OP_FORWARD = byte(0)
-var OP_MESSAGE = byte(1)
+//var OP_FORWARD = byte(0)
+//var OP_MESSAGE = byte(1)
 
 type WalSlot struct {
 	file  *os.File
@@ -61,7 +61,6 @@ type Server struct {
 	hardstateMutex      *sync.Mutex
 	hardstateFile       *os.File
 	dbChannel           chan []byte
-	leader              uint32
 	poolSize            uint32
 	flags               *ServerFlags
 }
@@ -101,8 +100,6 @@ func (s *Server) setupRaft() {
 		MaxSizePerMsg:   math.MaxUint32,
 		MaxInflightMsgs: 1000000,
 	}
-
-	s.leader = uint32(s.config.ID)
 
 	fmt.Printf("Peer addresses: %v\n", s.peerAddresses)
 
@@ -329,7 +326,6 @@ func wipeWorkingDirectory() error {
 
 func NewServer(serverFlags *ServerFlags) *Server {
 	s := &Server{
-		leader:         10000, //TODO: maybe change this i just need it to not be 0 instantly
 		peerAddresses:  strings.Split(serverFlags.PeerAddressesString, ","),
 		shutdownChan:   make(chan struct{}),
 		walSlots:       make([]WalSlot, serverFlags.WalFileCount),
@@ -495,6 +491,7 @@ func StartServer(args []string) {
 	}
 
 	grouped = make(map[uint64][]raftpb.Entry)
+	groupedMessages = make(map[uint64][]raftpb.Message)
 	err = wipeWorkingDirectory()
 	if err != nil {
 		panic(err)

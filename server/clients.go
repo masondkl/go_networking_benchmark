@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"log"
 	"net"
 	"networking_benchmark/shared"
@@ -28,12 +27,9 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 		}
 
 		if readBuffer[0] == shared.OP_LEADER {
-			fmt.Printf("Got op leader\n")
 			if s.node.Status().Lead == s.config.ID {
-				fmt.Printf("Responding with 1 %d, %d\n", s.leader, s.config.ID)
 				leaderBuffer[0] = 1
 			} else {
-				fmt.Printf("Responding with 0\n")
 				leaderBuffer[0] = 0
 			}
 			err := shared.Write(conn, leaderBuffer)
@@ -56,45 +52,45 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 	//fmt.Printf("Storing with messageId %d\n", messageId)
 
 	//atomic.AddUint32(&s.poolSize, ^uint32(0))
-	if s.leader == ownerId {
-		size := len(data) + 9
-		dataCopy := make([]byte, size)
-		dataCopy[0] = OP_MESSAGE
-		binary.LittleEndian.PutUint32(dataCopy[1:5], messageId)
-		binary.LittleEndian.PutUint32(dataCopy[5:9], ownerId)
-		copy(dataCopy[9:size], data)
-		//fmt.Printf("Got op: %d\n", dataCopy[9])
-		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
+	//if s.leader == ownerId {
+	size := len(data) + 9
+	dataCopy := make([]byte, size)
+	//dataCopy[0] = OP_MESSAGE
+	binary.LittleEndian.PutUint32(dataCopy[1:5], messageId)
+	binary.LittleEndian.PutUint32(dataCopy[5:9], ownerId)
+	copy(dataCopy[9:size], data)
+	//fmt.Printf("Got op: %d\n", dataCopy[9])
+	s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
 
-		//fmt.Printf("Proposing since we are the leader?\n")
-		go func() {
-			if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
-				panic(err)
-			}
-		}()
-	} else {
-		bufferCopy := s.pool.Get().([]byte)
-		bufferCopy[4] = OP_FORWARD
-		binary.LittleEndian.PutUint32(bufferCopy[5:9], messageId)
-		binary.LittleEndian.PutUint32(bufferCopy[9:13], ownerId)
-		copy(bufferCopy[13:len(data)+13], data)
-		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
-
-		peerIdx := s.leader - 1
-		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-		conn := s.peerConnections[peerIdx][connIdx]
-
-		go func() {
-			writeLock.Lock()
-			defer writeLock.Unlock()
-
-			binary.LittleEndian.PutUint32(bufferCopy[:4], uint32(len(data)+9))
-			if err := shared.Write(*conn.Connection, bufferCopy[:len(data)+13]); err != nil {
-				log.Printf("Write error to peer %d: %v", s.leader, err)
-			}
-			s.pool.Put(bufferCopy)
-		}()
-	}
+	//fmt.Printf("Proposing since we are the leader?\n")
+	go func() {
+		if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
+			panic(err)
+		}
+	}()
+	//} else {
+	//	bufferCopy := s.pool.Get().([]byte)
+	//	bufferCopy[4] = OP_FORWARD
+	//	binary.LittleEndian.PutUint32(bufferCopy[5:9], messageId)
+	//	binary.LittleEndian.PutUint32(bufferCopy[9:13], ownerId)
+	//	copy(bufferCopy[13:len(data)+13], data)
+	//	s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
+	//
+	//	peerIdx := s.leader - 1
+	//	connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+	//	conn := s.peerConnections[peerIdx][connIdx]
+	//
+	//	go func() {
+	//		writeLock.Lock()
+	//		defer writeLock.Unlock()
+	//
+	//		binary.LittleEndian.PutUint32(bufferCopy[:4], uint32(len(data)+9))
+	//		if err := shared.Write(*conn.Connection, bufferCopy[:len(data)+13]); err != nil {
+	//			log.Printf("Write error to peer %d: %v", s.leader, err)
+	//		}
+	//		s.pool.Put(bufferCopy)
+	//	}()
+	//}
 }
 
 func (s *Server) respondToClient(op byte, index uint32, data []byte) {

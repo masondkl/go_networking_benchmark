@@ -13,84 +13,54 @@ import (
 	"time"
 )
 
+var groupedMessages map[uint64][]raftpb.Message
+
 func (s *Server) processMessages(msgs []raftpb.Message) {
-	for _, msg := range msgs {
-		if msg.Type == raftpb.MsgHeartbeatResp {
-			s.leader = uint32(msg.To)
-		} else if msg.Type == raftpb.MsgHeartbeat {
-			s.leader = uint32(s.config.ID)
-		} else {
-			//fmt.Printf("Processing message: %+v\n", msg)
-		}
-		go s.sendMessageToPeer(msg)
+	//for _, msg := range msgs {
+	//	go s.sendMessageToPeer(msg)
+	//}
+
+	for _, m := range msgs {
+		groupedMessages[m.To] = append(groupedMessages[m.To], m)
+	}
+
+	for _to, _group := range groupedMessages {
+		go func(to uint64, group []raftpb.Message) {
+			buffer := s.pool.Get().([]byte)
+			nextSize := 0
+			for msgIndex := range group {
+				nextSize += 4
+				nextSize += group[msgIndex].Size()
+			}
+			buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
+			offset := 8
+			for msgIndex := range group {
+				size, err := group[msgIndex].MarshalTo(buffer[offset+4:])
+				if err != nil {
+					panic(err)
+				}
+				binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
+				offset += size + 4
+			}
+
+			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
+			peerIdx := to - 1
+			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+			peer := s.peerConnections[peerIdx][connIdx]
+			peer.WriteLock.Lock()
+			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
+				log.Printf("Write error to peer %d: %v", to, err)
+			}
+			peer.WriteLock.Unlock()
+			s.pool.Put(buffer)
+		}(_to, _group)
+	}
+
+	for k := range groupedMessages {
+		delete(groupedMessages, k)
 	}
 }
-
-func (s *Server) sendMessageToPeer(msg raftpb.Message) {
-	buffer := s.pool.Get().([]byte)
-	//atomic.AddUint32(&s.poolSize, ^uint32(0))
-
-	if len(msg.Snapshot.Data) > 0 {
-		log.Printf("Processing snapshot of size %d", len(msg.Snapshot.Data))
-	}
-
-	requiredSize := 5 + msg.Size()
-	if cap(buffer) < requiredSize {
-		buffer = append(buffer, make([]byte, requiredSize-len(buffer))...)
-		buffer = buffer[:cap(buffer)]
-	}
-
-	//fmt.Printf("Sending message to peer %+v\n", msg)
-	buffer[4] = OP_MESSAGE
-	size, err := msg.MarshalTo(buffer[5:])
-	if err != nil {
-		log.Printf("Marshal error: %v", err)
-		return
-	}
-
-	binary.LittleEndian.PutUint32(buffer[0:4], uint32(size+1))
-	peerIdx := msg.To - 1
-	connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-	conn := s.peerConnections[peerIdx][connIdx]
-
-	conn.WriteLock.Lock()
-	defer conn.WriteLock.Unlock()
-	if err := shared.Write(*conn.Connection, buffer[:size+5]); err != nil {
-		log.Printf("Write error to peer %d: %v", msg.To, err)
-	}
-	s.pool.Put(buffer)
-	//atomic.AddUint32(&s.poolSize, 1)
-}
-
-func (s *Server) handlePeerMessage(data []byte, amount int) {
-	op := data[0]
-	if op == OP_FORWARD {
-		data[0] = OP_MESSAGE
-		dataCopy := make([]byte, amount)
-		copy(dataCopy, data[:amount])
-
-		if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
-			panic(err)
-		}
-		s.pool.Put(data)
-		//atomic.AddUint32(&s.poolSize, 1)
-	} else if op == OP_MESSAGE {
-		var msg raftpb.Message
-		if err := msg.Unmarshal(data[1:amount]); err != nil {
-			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
-		}
-
-		if err := s.node.Step(context.TODO(), msg); err != nil {
-			log.Printf("Step error: %v", err)
-		}
-		s.pool.Put(data)
-		//atomic.AddUint32(&s.poolSize, 1)
-	} else {
-		panic(fmt.Sprintf("Unknown op: %v\n", op))
-	}
-}
-
-var a = uint32(0)
 
 func (s *Server) handlePeerConnection(conn net.Conn) {
 	defer conn.Close()
@@ -107,27 +77,25 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if err := shared.Read(conn, readBuffer[:4]); err != nil {
 			return
 		}
-
 		amount := binary.LittleEndian.Uint32(readBuffer[:4])
-
-		if cap(readBuffer) < int(amount) {
-			readBuffer = append(readBuffer, make([]byte, int(amount)-cap(readBuffer))...)
-			readBuffer = readBuffer[:cap(readBuffer)]
-		}
-
+		readBuffer := shared.GrowSlice(readBuffer, amount)
 		if err := shared.Read(conn, readBuffer[:amount]); err != nil {
 			return
 		}
-
-		bufferCopy := s.pool.Get().([]byte)
-		//atomic.AddUint32(&s.poolSize, ^uint32(0))
-		if cap(bufferCopy) < int(amount) {
-			bufferCopy = append(bufferCopy, make([]byte, int(amount)-cap(bufferCopy))...)
-			bufferCopy = bufferCopy[:cap(bufferCopy)]
+		msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
+		offset := 4
+		for i := 0; i < int(msgCount); i++ {
+			msgSize := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
+			offset += 4
+			var msg raftpb.Message
+			if err := msg.Unmarshal(readBuffer[offset : offset+int(msgSize)]); err != nil {
+				panic(fmt.Sprintf("Error unmarshaling message: %v", err))
+			}
+			if err := s.node.Step(context.TODO(), msg); err != nil {
+				log.Printf("Step error: %v", err)
+			}
+			offset += int(msgSize)
 		}
-
-		copy(bufferCopy[:amount], readBuffer[:amount])
-		go s.handlePeerMessage(bufferCopy, int(amount))
 	}
 }
 

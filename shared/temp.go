@@ -11,6 +11,14 @@ const OP_READ = 2
 const OP_READ_MEMORY = 3
 const OP_LEADER = 4
 
+func GrowSlice(buffer []byte, requiredSize uint32) []byte {
+	if cap(buffer) < int(requiredSize) {
+		buffer = append(buffer, make([]byte, int(requiredSize)-len(buffer))...)
+		buffer = buffer[:cap(buffer)]
+	}
+	return buffer
+}
+
 func Read(connection net.Conn, buffer []byte) error {
 	for start := 0; start != len(buffer); {
 		amount, reason := connection.Read(buffer[start:])
