@@ -104,7 +104,9 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 	binary.LittleEndian.PutUint32(dataCopy[16:20], ownerId)
 	copy(dataCopy[20:size], data)
 
+	//fmt.Printf("op: %d\n", dataCopy[20])
 	if dataCopy[20] == shared.OP_READ || dataCopy[20] == shared.OP_READ_MEMORY {
+		//fmt.Println("readindex")
 		ctx := make([]byte, 16)
 		copy(ctx[:], messageId[:16])
 		s.senders.Store(messageId, shared.PendingRead{Connection: conn, WriteLock: writeLock, Key: dataCopy})
@@ -114,6 +116,7 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 			}
 		}()
 	} else {
+		//fmt.Println("propose")
 		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
 		go func() {
 			if err := s.node.Propose(context.TODO(), dataCopy); err != nil {

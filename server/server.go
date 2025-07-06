@@ -169,11 +169,20 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 	}
 	if !(s.flags.Memory) {
 		group := sync.WaitGroup{}
+		count := 0
 		for _, e := range entries {
-			walIndex := e.Index % uint64(s.flags.WalFileCount)
-			grouped[walIndex] = append(grouped[walIndex], e)
+			if e.Type == raftpb.EntryNormal {
+				fmt.Printf("data: %d\n", len(e.Data))
+				walIndex := e.Index % uint64(s.flags.WalFileCount)
+				grouped[walIndex] = append(grouped[walIndex], e)
+				count++
+			}
+		}
+		if count == 0 {
+			return
 		}
 
+		fmt.Printf("Writing to wal\n")
 		group.Add(len(grouped))
 
 		for walIndex := range grouped {
