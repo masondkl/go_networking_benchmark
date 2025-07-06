@@ -78,7 +78,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 		amount := binary.LittleEndian.Uint32(readBuffer[:4])
-		readBuffer := shared.GrowSlice(readBuffer, amount)
+		readBuffer = shared.GrowSlice(readBuffer, amount)
 		if err := shared.Read(conn, readBuffer[:amount]); err != nil {
 			return
 		}

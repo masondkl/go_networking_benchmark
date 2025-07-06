@@ -14,12 +14,12 @@ var (
 )
 
 func SetupKeyBucket() {
-	db, err := bbolt.Open("data.db", 0600, nil)
+	boltDb, err := bbolt.Open("data.db", 0600, nil)
 	if err != nil {
 		panic(err)
 	}
-
-	tx, err := db.Begin(true)
+	db = boltDb
+	tx, err := boltDb.Begin(true)
 	if err != nil {
 		panic(err)
 	}
