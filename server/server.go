@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+
 	//"sync/atomic"
 	"syscall"
 	"time"
@@ -66,9 +68,12 @@ type Server struct {
 	flags               *ServerFlags
 }
 
+var created = uint32(0)
+
 func (s *Server) initPool() {
 	s.pool = sync.Pool{
 		New: func() interface{} {
+			atomic.AddUint32(&created, 1)
 			return make([]byte, s.flags.PoolDataSize)
 		},
 	}
@@ -83,12 +88,12 @@ func (s *Server) initPool() {
 
 	//atomic.AddUint32(&s.poolSize, uint32(*PoolWarmupSize))
 
-	//go func() {
-	//	for {
-	//		time.Sleep(500 * time.Millisecond)
-	//		fmt.Printf("Pool size: %d\n", atomic.LoadUint32(&s.poolSize))
-	//	}
-	//}()
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			fmt.Printf("Created pool buffers: %d\n", atomic.LoadUint32(&created))
+		}
+	}()
 }
 
 func (s *Server) setupRaft() {
@@ -160,15 +165,15 @@ func (s *Server) processHardState(hs raftpb.HardState) {
 	}
 }
 
-var grouped map[uint64][]raftpb.Entry
-
 func (s *Server) processEntries(entries []raftpb.Entry) {
 	if len(entries) > 0 {
 		if err := s.storage.Append(entries); err != nil {
 			log.Printf("Append entries error: %v", err)
 		}
 	}
+
 	if !(s.flags.Memory) {
+		var grouped = make(map[uint64][]raftpb.Entry)
 		group := sync.WaitGroup{}
 		count := 0
 		for _, e := range entries {
@@ -522,8 +527,6 @@ func StartServer(args []string) {
 		log.Fatalf("choose either -manual or -flags (not both)")
 	}
 
-	grouped = make(map[uint64][]raftpb.Entry)
-	groupedMessages = make(map[uint64][]raftpb.Message)
 	err = wipeWorkingDirectory()
 	if err != nil {
 		panic(err)

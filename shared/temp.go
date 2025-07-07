@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"fmt"
 	"net"
 	"sync"
 )
@@ -19,6 +20,7 @@ type PendingRead struct {
 
 func GrowSlice(buffer []byte, requiredSize uint32) []byte {
 	if cap(buffer) < int(requiredSize) {
+		fmt.Printf("Growing buffer: %d -> %d\n", cap(buffer), requiredSize)
 		buffer = append(buffer, make([]byte, int(requiredSize)-len(buffer))...)
 		buffer = buffer[:cap(buffer)]
 	}

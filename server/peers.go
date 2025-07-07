@@ -13,18 +13,18 @@ import (
 	"time"
 )
 
-var groupedMessages map[uint64][]raftpb.Message
-
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	//for _, msg := range msgs {
 	//	go s.sendMessageToPeer(msg)
 	//}
 
+	var grouped = make(map[uint64][]raftpb.Message)
+
 	for _, m := range msgs {
-		groupedMessages[m.To] = append(groupedMessages[m.To], m)
+		grouped[m.To] = append(grouped[m.To], m)
 	}
 
-	for _to, _group := range groupedMessages {
+	for _to, _group := range grouped {
 		go func(to uint64, group []raftpb.Message) {
 			buffer := s.pool.Get().([]byte)
 			nextSize := 0
@@ -57,8 +57,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		}(_to, _group)
 	}
 
-	for k := range groupedMessages {
-		delete(groupedMessages, k)
+	for k := range grouped {
+		delete(grouped, k)
 	}
 }
 
