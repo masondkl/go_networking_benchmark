@@ -28,14 +28,19 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		go func(to uint64, group []raftpb.Message) {
 			buffer := s.pool.Get().([]byte)
 			nextSize := 0
+			sizes := make([]int, len(group))
 			for msgIndex := range group {
 				nextSize += 4
 				nextSize += group[msgIndex].Size()
+				sizes[msgIndex] = group[msgIndex].Size()
 			}
 			buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
 			offset := 8
 			for msgIndex := range group {
 				size, err := group[msgIndex].MarshalTo(buffer[offset+4:])
+				if sizes[msgIndex] != size {
+					panic("Message size was not equal to marshalled size")
+				}
 				if err != nil {
 					panic(err)
 				}
