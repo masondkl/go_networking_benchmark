@@ -117,6 +117,7 @@ func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
 		if !(s.flags.Memory) {
 			buffer := s.pool.Get().([]byte)
+			buffer = shared.GrowSlice(buffer, uint32(hs.Size()))
 			size, err := hs.MarshalTo(buffer)
 			if err != nil {
 				panic(err)
@@ -189,6 +190,11 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			go func() {
 				buffer := s.pool.Get().([]byte)
 				size := 0
+				for entryIndex := range walEntries {
+					size += walEntries[entryIndex].Size()
+				}
+				buffer = shared.GrowSlice(buffer, uint32(size))
+				size = 0
 				for entryIndex := range walEntries {
 					entry := walEntries[entryIndex]
 					entrySize, err := entry.MarshalTo(buffer[size:])
