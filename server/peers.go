@@ -37,10 +37,10 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
 			offset := 8
 			for msgIndex := range group {
-				size, err := group[msgIndex].MarshalTo(buffer[offset+4:])
-				if sizes[msgIndex] != size {
-					panic("Message size was not equal to marshalled size")
+				if offset+4+group[msgIndex].Size() > cap(buffer) {
+					panic("Didn't grow large enough?")
 				}
+				size, err := group[msgIndex].MarshalTo(buffer[offset+4:])
 				if err != nil {
 					panic(err)
 				}
