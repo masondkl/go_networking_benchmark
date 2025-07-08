@@ -86,9 +86,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				offset += size + 4
 			}
 		}
-		if offset != offset+8 {
-			log.Fatalf("Size mismatch\n")
-		}
 		go func(to uint64, buffer []byte) {
 			peerIdx := to - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
