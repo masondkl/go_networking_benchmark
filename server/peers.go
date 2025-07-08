@@ -27,46 +27,50 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	for to, group := range grouped {
 		buffer := s.pool.Get().([]byte)
 		nextSize := 0
-		sizes := make([]int, len(group))
 		for msgIndex := range group {
 			sz := group[msgIndex].Size()
+			buffer = shared.GrowSlice(buffer, uint32(sz))
+			size, err := group[msgIndex].MarshalTo(buffer[nextSize+4 : nextSize+4+sz])
+			if err != nil {
+				return
+			}
+			binary.LittleEndian.PutUint32(buffer[nextSize:], uint32(size))
 			nextSize += 4
 			nextSize += sz
-			sizes[msgIndex] = sz
 		}
-		buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
-		offset := 8
-		for msgIndex := range group {
-			sz := group[msgIndex].Size()
-			if sz != sizes[msgIndex] {
-				log.Fatalf("%d != %d?\n", sz, sizes[msgIndex])
-			}
-			if offset+4+sz > len(buffer) {
-				fmt.Printf("Didn't grow large enough? grew to %d, but %d < %d\n", uint32(nextSize)+8, len(buffer), offset+4+sz)
-			}
-			fmt.Printf("Marshal to %d\n", offset+4)
-			size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sz])
-			if size != sz || sz != sizes[msgIndex] {
-				log.Fatalf("Size mismatch\n")
-			}
-			if err != nil {
-				fmt.Printf("%d != %d?\n", size, sizes[msgIndex])
-			} else {
-				binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
-				offset += size + 4
-			}
-		}
-		if offset != nextSize+8 {
-			log.Fatalf("Size mismatch\n")
-		}
+		//buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
+		//offset := 8
+		//for msgIndex := range group {
+		//	sz := group[msgIndex].Size()
+		//	if sz != sizes[msgIndex] {
+		//		log.Fatalf("%d != %d?\n", sz, sizes[msgIndex])
+		//	}
+		//	if offset+4+sz > len(buffer) {
+		//		fmt.Printf("Didn't grow large enough? grew to %d, but %d < %d\n", uint32(nextSize)+8, len(buffer), offset+4+sz)
+		//	}
+		//	fmt.Printf("Marshal to %d\n", offset+4)
+		//	size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sz])
+		//	if size != sz || sz != sizes[msgIndex] {
+		//		log.Fatalf("Size mismatch\n")
+		//	}
+		//	if err != nil {
+		//		fmt.Printf("%d != %d?\n", size, sizes[msgIndex])
+		//	} else {
+		//		binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
+		//		offset += size + 4
+		//	}
+		//}
+		//if offset != nextSize+8 {
+		//	log.Fatalf("Size mismatch\n")
+		//}
 		go func(to uint64, group []raftpb.Message, buffer []byte) {
-			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+			binary.LittleEndian.PutUint32(buffer[0:4], uint32(nextSize-4))
 			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
 			peerIdx := to - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
 			peer.WriteLock.Lock()
-			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
+			if err := shared.Write(*peer.Connection, buffer[:nextSize]); err != nil {
 				log.Printf("Write error to peer %d: %v", to, err)
 			}
 			peer.WriteLock.Unlock()
