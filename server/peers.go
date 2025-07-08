@@ -43,7 +43,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 
 	for to, group := range grouped {
 		go func(to uint64, group []raftpb.Message) {
-			var offset = 0
+			var offset = 8
 			buffer := s.pool.Get().([]byte)
 			for i := range group {
 				msg := group[i]
@@ -55,7 +55,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
 				offset += size + 4
 			}
-
+			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
 			peerIdx := to - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
@@ -142,20 +143,26 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if err := shared.Read(conn, readBuffer[:4]); err != nil {
 			return
 		}
-		size := binary.LittleEndian.Uint32(readBuffer[:4])
-		readBuffer = shared.GrowSlice(readBuffer, size)
-		if err := shared.Read(conn, readBuffer[:size]); err != nil {
+		totalSize := binary.LittleEndian.Uint32(readBuffer[:4])
+		readBuffer = shared.GrowSlice(readBuffer, totalSize)
+		if err := shared.Read(conn, readBuffer[:totalSize]); err != nil {
 			return
 		}
-		var msg raftpb.Message
-		if err := msg.Unmarshal(readBuffer[:size]); err != nil {
-			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
-		}
-		go func() {
-			if err := s.node.Step(context.TODO(), msg); err != nil {
-				log.Printf("Step error: %v", err)
+		msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
+		offset := uint32(0)
+		for i := uint32(0); i < msgCount; i++ {
+			size := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
+			var msg raftpb.Message
+			if err := msg.Unmarshal(readBuffer[offset+4 : offset+4+size]); err != nil {
+				panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 			}
-		}()
+			offset += size + 4
+			go func() {
+				if err := s.node.Step(context.TODO(), msg); err != nil {
+					log.Printf("Step error: %v", err)
+				}
+			}()
+		}
 
 		//msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
 		//offset := 4
