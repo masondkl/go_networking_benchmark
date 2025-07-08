@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"fmt"
 	"net"
 	"sync"
 )
@@ -18,13 +17,13 @@ type PendingRead struct {
 	Key        []byte
 }
 
-func GrowSlice(buffer []byte, requiredSize uint32) []byte {
-	if cap(buffer) < int(requiredSize) {
-		fmt.Printf("Growing buffer: %d -> %d\n", cap(buffer), requiredSize)
-		buffer = append(buffer, make([]byte, int(requiredSize)-len(buffer))...)
-		buffer = buffer[:cap(buffer)]
+func GrowSlice(buffer []byte, required uint32) []byte {
+	if cap(buffer) < int(required) {
+		next := make([]byte, required)
+		copy(next, buffer)
+		buffer = next
 	}
-	return buffer
+	return buffer[:required]
 }
 
 func Read(connection net.Conn, buffer []byte) error {
