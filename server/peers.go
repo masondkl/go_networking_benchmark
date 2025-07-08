@@ -41,7 +41,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			if sz != sizes[msgIndex] {
 				log.Fatalf("%d != %d?\n", sz, sizes[msgIndex])
 			}
-			size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sizes[msgIndex]])
+			size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sz])
 			if err != nil {
 				fmt.Printf("%d != %d?\n", size, sizes[msgIndex])
 			} else {
