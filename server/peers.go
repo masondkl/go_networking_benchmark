@@ -27,7 +27,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
 			peer.WriteLock.Lock()
-			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {
+			if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
 				log.Printf("Write error to peer %d: %v", msg.To, err)
 			}
 			peer.WriteLock.Unlock()
