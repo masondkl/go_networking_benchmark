@@ -149,7 +149,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 		msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
-		offset := uint32(0)
+		offset := uint32(4)
 		for i := uint32(0); i < msgCount; i++ {
 			size := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
 			var msg raftpb.Message
