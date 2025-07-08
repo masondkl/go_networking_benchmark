@@ -42,7 +42,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				log.Fatalf("%d != %d?\n", sz, sizes[msgIndex])
 			}
 			if offset+4+sz > len(buffer) {
-				fmt.Printf("Didn't grow large enough? %d < %d\n", len(buffer), offset+4+sz)
+				fmt.Printf("Didn't grow large enough? grew to %d, but %d < %d\n", uint32(nextSize)+8, len(buffer), offset+4+sz)
 			}
 			size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sz])
 			if err != nil {
