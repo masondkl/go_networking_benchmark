@@ -124,9 +124,11 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if err := msg.Unmarshal(readBuffer[:size]); err != nil {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
-		if err := s.node.Step(context.TODO(), msg); err != nil {
-			log.Printf("Step error: %v", err)
-		}
+		go func() {
+			if err := s.node.Step(context.TODO(), msg); err != nil {
+				log.Printf("Step error: %v", err)
+			}
+		}()
 
 		//msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
 		//offset := 4
