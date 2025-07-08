@@ -29,7 +29,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		nextSize := 0
 		for msgIndex := range group {
 			sz := group[msgIndex].Size()
-			buffer = shared.GrowSlice(buffer, uint32(sz))
+			buffer = shared.GrowSlice(buffer, uint32(nextSize+sz))
 			size, err := group[msgIndex].MarshalTo(buffer[nextSize+4 : nextSize+4+sz])
 			if err != nil {
 				return
