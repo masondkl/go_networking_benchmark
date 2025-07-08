@@ -32,6 +32,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 
 			fmt.Printf("Message size %v, %d\n", group[msgIndex].Type, sz)
 			msgBuffer := s.pool.Get().([]byte)
+			msgBuffer = shared.GrowSlice(msgBuffer, uint32(group[msgIndex].Size()))
 			size, err := group[msgIndex].MarshalTo(msgBuffer)
 			if err != nil {
 				log.Fatalf("Unable to marshal: %d != %d\n", sz, size)
