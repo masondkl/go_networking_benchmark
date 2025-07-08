@@ -29,11 +29,18 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		offset := 8
 		for msgIndex := range group {
 			sz := group[msgIndex].Size()
-			buffer = shared.GrowSlice(buffer, uint32(offset+sz+4))
-			size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sz])
+			msgBuffer := s.pool.Get().([]byte)
+			size, err := group[msgIndex].MarshalTo(msgBuffer)
 			if err != nil {
+				log.Fatalf("Unable to marshal: %d != %d\n", sz, size)
+			}
+			if size != sz {
 				log.Fatalf("Incorrect size: %d != %d\n", sz, size)
 			}
+			buffer = shared.GrowSlice(buffer, uint32(offset+4+size))
+			copy(buffer[offset+4:offset+4+size], msgBuffer[:size])
+			s.pool.Put(msgBuffer)
+
 			binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
 			offset += 4
 			offset += size
