@@ -29,9 +29,10 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		nextSize := 0
 		sizes := make([]int, len(group))
 		for msgIndex := range group {
+			sz := group[msgIndex].Size()
 			nextSize += 4
-			nextSize += group[msgIndex].Size()
-			sizes[msgIndex] = group[msgIndex].Size()
+			nextSize += sz
+			sizes[msgIndex] = sz
 		}
 		buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
 		offset := 8
@@ -40,7 +41,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			if sz != sizes[msgIndex] {
 				log.Fatalf("%d != %d?\n", sz, sizes[msgIndex])
 			}
-			size, err := group[msgIndex].MarshalTo(buffer[offset+4 : sizes[msgIndex]])
+			size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sizes[msgIndex]])
 			if err != nil {
 				fmt.Printf("%d != %d?\n", size, sizes[msgIndex])
 			} else {
