@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"fmt"
 	"net"
 	"sync"
 )
@@ -23,6 +24,7 @@ func GrowSlice(buffer []byte, required uint32) []byte {
 		copy(next, buffer)
 		buffer = next
 	}
+	fmt.Printf("Growing to %d\n", required)
 	return buffer[:required]
 }
 
