@@ -175,15 +175,15 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 	if !(s.flags.Memory) {
 		var grouped = make(map[uint64][]raftpb.Entry)
 		group := sync.WaitGroup{}
-		count := 0
+		entryCount := 0
 		for _, e := range entries {
 			if e.Type == raftpb.EntryNormal {
 				walIndex := e.Index % uint64(s.flags.WalFileCount)
 				grouped[walIndex] = append(grouped[walIndex], e)
-				count++
+				entryCount++
 			}
 		}
-		if count == 0 {
+		if entryCount == 0 {
 			return
 		}
 
@@ -192,23 +192,22 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 		for walIndex := range grouped {
 			walEntries := grouped[walIndex]
 			slot := s.walSlots[walIndex]
+			buffer := s.pool.Get().([]byte)
+			size := 0
+			for entryIndex := range walEntries {
+				size += walEntries[entryIndex].Size()
+			}
+			buffer = shared.GrowSlice(buffer, uint32(size))
+			size = 0
+			for entryIndex := range walEntries {
+				entry := walEntries[entryIndex]
+				entrySize, err := entry.MarshalTo(buffer[size:])
+				if err != nil {
+					panic(err)
+				}
+				size += entrySize
+			}
 			go func() {
-				buffer := s.pool.Get().([]byte)
-				size := 0
-				for entryIndex := range walEntries {
-					size += walEntries[entryIndex].Size()
-				}
-				buffer = shared.GrowSlice(buffer, uint32(size))
-				size = 0
-				for entryIndex := range walEntries {
-					entry := walEntries[entryIndex]
-					entrySize, err := entry.MarshalTo(buffer[size:])
-					if err != nil {
-						panic(err)
-					}
-					size += entrySize
-				}
-
 				count := 0
 				for {
 					wrote, err := slot.file.Write(buffer[count:size])

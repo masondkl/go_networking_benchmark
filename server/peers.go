@@ -24,30 +24,29 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		grouped[m.To] = append(grouped[m.To], m)
 	}
 
-	for _to, _group := range grouped {
-		go func(to uint64, group []raftpb.Message) {
-			buffer := s.pool.Get().([]byte)
-			nextSize := 0
-			sizes := make([]int, len(group))
-			for msgIndex := range group {
-				nextSize += 4
-				nextSize += group[msgIndex].Size()
-				sizes[msgIndex] = group[msgIndex].Size()
+	for to, group := range grouped {
+		buffer := s.pool.Get().([]byte)
+		nextSize := 0
+		sizes := make([]int, len(group))
+		for msgIndex := range group {
+			nextSize += 4
+			nextSize += group[msgIndex].Size()
+			sizes[msgIndex] = group[msgIndex].Size()
+		}
+		buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
+		offset := 8
+		for msgIndex := range group {
+			if offset+4+group[msgIndex].Size() > len(buffer) {
+				panic("Didn't grow large enough?")
 			}
-			buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
-			offset := 8
-			for msgIndex := range group {
-				if offset+4+group[msgIndex].Size() > len(buffer) {
-					panic("Didn't grow large enough?")
-				}
-				size, err := group[msgIndex].MarshalTo(buffer[offset+4:])
-				if err != nil {
-					panic(err)
-				}
-				binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
-				offset += size + 4
+			size, err := group[msgIndex].MarshalTo(buffer[offset+4:])
+			if err != nil {
+				panic(err)
 			}
-
+			binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
+			offset += size + 4
+		}
+		go func(to uint64, group []raftpb.Message, buffer []byte) {
 			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
 			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
 			peerIdx := to - 1
@@ -59,11 +58,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			}
 			peer.WriteLock.Unlock()
 			s.pool.Put(buffer)
-		}(_to, _group)
-	}
-
-	for k := range grouped {
-		delete(grouped, k)
+		}(to, group, buffer)
 	}
 }
 
