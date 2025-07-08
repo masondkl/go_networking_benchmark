@@ -68,64 +68,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			s.pool.Put(buffer)
 		}(to, group)
 	}
-	//
-	//for to, group := range grouped {
-	//	buffer := s.pool.Get().([]byte)
-	//	//offset := 8
-	//	//for msgIndex := range group {
-	//	//	sz := group[msgIndex].Size()
-	//	//
-	//	//	fmt.Printf("Message size %v, %d\n", group[msgIndex].Type, sz)
-	//	//	msgBuffer := s.pool.Get().([]byte)
-	//	//	msgBuffer = shared.GrowSlice(msgBuffer, uint32(group[msgIndex].Size()))
-	//	//	size, err := group[msgIndex].MarshalTo(msgBuffer)
-	//	//	if err != nil {
-	//	//		log.Fatalf("Unable to marshal: %d != %d\n", sz, size)
-	//	//	}
-	//	//	if size != sz {
-	//	//		log.Fatalf("Incorrect size: %d != %d\n", sz, size)
-	//	//	}
-	//	//	buffer = shared.GrowSlice(buffer, uint32(offset+4+size))
-	//	//	copy(buffer[offset+4:offset+4+size], msgBuffer[:size])
-	//	//	s.pool.Put(msgBuffer)
-	//	//
-	//	//	binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
-	//	//	offset += 4
-	//	//	offset += size
-	//	//}
-	//	offset := 8
-	//	for msgIndex := range group {
-	//		sz := group[msgIndex].Size()
-	//		if offset+4+sz > len(buffer) {
-	//			fmt.Printf("Didn't grow large enough? grew to %d, but %d < %d\n", uint32(offset)+8, len(buffer), offset+4+sz)
-	//		}
-	//		buffer = shared.GrowSlice(buffer, uint32(offset+4+sz))
-	//		fmt.Printf("Marshal to %d\n", offset+4)
-	//		size, err := group[msgIndex].MarshalTo(buffer[offset+4 : offset+4+sz])
-	//		if size != sz {
-	//			log.Fatalf("Size mismatch\n")
-	//		}
-	//		if err != nil {
-	//			log.Fatalf("Size mismatch\n")
-	//		} else {
-	//			binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
-	//			offset += size + 4
-	//		}
-	//	}
-	//	binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
-	//	binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
-	//	go func(to uint64, buffer []byte) {
-	//		peerIdx := to - 1
-	//		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-	//		peer := s.peerConnections[peerIdx][connIdx]
-	//		peer.WriteLock.Lock()
-	//		if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
-	//			log.Printf("Write error to peer %d: %v", to, err)
-	//		}
-	//		peer.WriteLock.Unlock()
-	//		s.pool.Put(buffer)
-	//	}(to, buffer)
-	//}
 }
 
 func (s *Server) handlePeerConnection(conn net.Conn) {
@@ -163,23 +105,6 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 				}
 			}()
 		}
-
-		//msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
-		//offset := 4
-		//for i := 0; i < int(msgCount); i++ {
-		//	msgSize := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
-		//	offset += 4
-		//	var msg raftpb.Message
-		//	if err := msg.Unmarshal(readBuffer[offset : offset+int(msgSize)]); err != nil {
-		//		panic(fmt.Sprintf("Error unmarshaling message: %v", err))
-		//	}
-		//	offset += int(msgSize)
-		//	go func() {
-		//		if err := s.node.Step(context.TODO(), msg); err != nil {
-		//			log.Printf("Step error: %v", err)
-		//		}
-		//	}()
-		//}
 	}
 }
 
