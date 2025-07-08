@@ -19,9 +19,9 @@ type PendingRead struct {
 
 func GrowSlice(buffer []byte, required uint32) []byte {
 	if cap(buffer) < int(required) {
-		next := make([]byte, required-uint32(cap(buffer)))
-		//copy(next, buffer)
-		buffer = append(buffer, next...)
+		next := make([]byte, required)
+		copy(next, buffer)
+		buffer = next
 	}
 	if len(buffer) < int(required) {
 		return buffer[:required]
