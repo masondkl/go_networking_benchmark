@@ -55,6 +55,9 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				offset += size + 4
 			}
 		}
+		if offset != nextSize+8 {
+			log.Fatalf("Size mismatch\n")
+		}
 		go func(to uint64, group []raftpb.Message, buffer []byte) {
 			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
 			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
