@@ -65,8 +65,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		//	offset += 4
 		//	offset += size
 		//}
-		//binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
-		//binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
 		offset := 8
 		for msgIndex := range group {
 			sz := group[msgIndex].Size()
@@ -86,6 +84,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				offset += size + 4
 			}
 		}
+		binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+		binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
 		go func(to uint64, buffer []byte) {
 			peerIdx := to - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
