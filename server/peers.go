@@ -48,6 +48,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			offset += 4
 			offset += size
 		}
+		binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+		binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
 		//buffer = shared.GrowSlice(buffer, uint32(offset)+8)
 		//offset := 8
 		//for msgIndex := range group {
@@ -73,9 +75,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		//if offset != offset+8 {
 		//	log.Fatalf("Size mismatch\n")
 		//}
-		go func(to uint64, group []raftpb.Message, buffer []byte) {
-			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
-			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
+		go func(to uint64, buffer []byte) {
 			peerIdx := to - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
@@ -85,7 +85,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			}
 			peer.WriteLock.Unlock()
 			s.pool.Put(buffer)
-		}(to, group, buffer)
+		}(to, buffer)
 	}
 }
 
