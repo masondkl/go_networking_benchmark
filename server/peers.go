@@ -29,6 +29,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		offset := 8
 		for msgIndex := range group {
 			sz := group[msgIndex].Size()
+			fmt.Printf("Message size %d\n", sz)
 			msgBuffer := s.pool.Get().([]byte)
 			size, err := group[msgIndex].MarshalTo(msgBuffer)
 			if err != nil {
