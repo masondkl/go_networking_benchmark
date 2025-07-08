@@ -54,7 +54,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 					return
 				}
 				binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
-				copy(bulkBuffer[offset:], buffer)
+				bulkBuffer = shared.GrowSlice(bulkBuffer, uint32(offset+size+4))
+				copy(bulkBuffer[offset:], buffer[:size+4])
 				s.pool.Put(buffer)
 				offset += size + 4
 			}
