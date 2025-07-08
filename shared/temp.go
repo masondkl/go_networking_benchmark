@@ -23,8 +23,10 @@ func GrowSlice(buffer []byte, required uint32) []byte {
 		copy(next, buffer)
 		buffer = next
 	}
-	//fmt.Printf("Growing to required=%d cap=%d len=%d\n", required, cap(buffer), len(buffer))
-	return buffer[:required]
+	if len(buffer) < int(required) {
+		return buffer[:required]
+	}
+	return buffer
 }
 
 func Read(connection net.Conn, buffer []byte) error {
