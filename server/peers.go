@@ -17,7 +17,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	for _, msg := range msgs {
 		go func() {
 			buffer := s.pool.Get().([]byte)
-			shared.GrowSlice(buffer, uint32(msg.Size())+4)
+			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
 			size, err := msg.MarshalTo(buffer[4:])
 			if err != nil {
 				return
