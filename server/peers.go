@@ -43,20 +43,16 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 
 	for to, group := range grouped {
 		go func(to uint64, group []raftpb.Message) {
-			bulkBuffer := s.pool.Get().([]byte)
 			var offset = 0
+			buffer := s.pool.Get().([]byte)
 			for i := range group {
 				msg := group[i]
-				buffer := s.pool.Get().([]byte)
-				buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
-				size, err := msg.MarshalTo(buffer[4:])
+				buffer = shared.GrowSlice(buffer, uint32(offset+msg.Size()+4))
+				size, err := msg.MarshalTo(buffer[offset+4:])
 				if err != nil {
 					return
 				}
-				binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
-				bulkBuffer = shared.GrowSlice(bulkBuffer, uint32(offset+size+4))
-				copy(bulkBuffer[offset:], buffer[:size+4])
-				s.pool.Put(buffer)
+				binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
 				offset += size + 4
 			}
 
@@ -64,11 +60,11 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
 			peer.WriteLock.Lock()
-			if err := shared.Write(*peer.Connection, bulkBuffer[:offset]); err != nil {
+			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
 				log.Printf("Write error to peer %d: %v", to, err)
 			}
 			peer.WriteLock.Unlock()
-			s.pool.Put(bulkBuffer)
+			s.pool.Put(buffer)
 		}(to, group)
 	}
 	//
