@@ -13,39 +13,6 @@ import (
 	"time"
 )
 
-func cloneMessage(m raftpb.Message) raftpb.Message {
-	cloned := m
-
-	// Clone Entries slice
-	if m.Entries != nil {
-		cloned.Entries = make([]raftpb.Entry, len(m.Entries))
-		copy(cloned.Entries, m.Entries)
-
-		// Optional: deep copy Entry.Data if needed
-		for i, e := range cloned.Entries {
-			if e.Data != nil {
-				dataCopy := make([]byte, len(e.Data))
-				copy(dataCopy, e.Data)
-				cloned.Entries[i].Data = dataCopy
-			}
-		}
-	}
-
-	// Clone Snapshot.Data
-	if m.Snapshot.Data != nil {
-		cloned.Snapshot.Data = make([]byte, len(m.Snapshot.Data))
-		copy(cloned.Snapshot.Data, m.Snapshot.Data)
-	}
-
-	// Clone Context
-	if m.Context != nil {
-		cloned.Context = make([]byte, len(m.Context))
-		copy(cloned.Context, m.Context)
-	}
-
-	return cloned
-}
-
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	//for _, msg := range msgs {
 	//	go s.sendMessageToPeer(msg)
@@ -54,7 +21,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	var grouped = make(map[uint64][]raftpb.Message)
 
 	for _, m := range msgs {
-		grouped[m.To] = append(grouped[m.To], cloneMessage(m))
+		grouped[m.To] = append(grouped[m.To], m)
 	}
 
 	for to, group := range grouped {
@@ -69,15 +36,13 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		buffer = shared.GrowSlice(buffer, uint32(nextSize)+8)
 		offset := 8
 		for msgIndex := range group {
-			if offset+4+sizes[msgIndex] > len(buffer) {
-				panic("Didn't grow large enough?")
-			}
 			size, err := group[msgIndex].MarshalTo(buffer[offset+4:])
 			if err != nil {
-				panic(err)
+				fmt.Printf("%d != %d?\n", size, sizes[msgIndex])
+			} else {
+				binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
+				offset += size + 4
 			}
-			binary.LittleEndian.PutUint32(buffer[offset:], uint32(size))
-			offset += size + 4
 		}
 		go func(to uint64, group []raftpb.Message, buffer []byte) {
 			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
