@@ -138,10 +138,12 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			if err := msg.Unmarshal(readBuffer[offset : offset+int(msgSize)]); err != nil {
 				panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 			}
-			if err := s.node.Step(context.TODO(), msg); err != nil {
-				log.Printf("Step error: %v", err)
-			}
 			offset += int(msgSize)
+			go func() {
+				if err := s.node.Step(context.TODO(), msg); err != nil {
+					log.Printf("Step error: %v", err)
+				}
+			}()
 		}
 	}
 }
