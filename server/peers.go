@@ -30,6 +30,12 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			peerIdx := msg.To - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
+			if msg.Type == raftpb.MsgSnap {
+				log.Printf("Snapshot triggered for node %d:", msg.To)
+				log.Printf("  - Reason: %v", msg.Reject) // Usually false
+				log.Printf("  - Snapshot size: %d bytes", msg.Snapshot.Size())
+				log.Printf("  - Last index: %d", msg.Snapshot.Metadata.Index)
+			}
 			//fmt.Printf("Sending peer message: %d\n", len(msg.Entries))
 			peer.WriteLock.Lock()
 			if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
