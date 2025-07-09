@@ -131,6 +131,9 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if err := shared.Read(conn, readBuffer[:size]); err != nil {
 			return
 		}
+		if size > 1000000 {
+			fmt.Printf("recv %d\n", size)
+		}
 		var msg raftpb.Message
 		if err := msg.Unmarshal(readBuffer[:size]); err != nil {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
