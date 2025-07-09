@@ -109,8 +109,6 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
 
-		fmt.Printf("Received message: %+v\n", msg)
-
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
 				log.Printf("Step error: %v", err)
