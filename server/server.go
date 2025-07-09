@@ -100,8 +100,8 @@ func (s *Server) setupRaft() {
 	s.storage = raft.NewMemoryStorage()
 	s.config = &raft.Config{
 		ID:              uint64(s.flags.NodeIndex + 1),
-		ElectionTick:    20,
-		HeartbeatTick:   2,
+		ElectionTick:    60,
+		HeartbeatTick:   5,
 		Storage:         s.storage,
 		MaxSizePerMsg:   math.MaxUint32,
 		MaxInflightMsgs: 1000000,
@@ -317,7 +317,7 @@ func (s *Server) processReady(rd raft.Ready) {
 }
 
 func (s *Server) run() {
-	ticker := time.NewTicker(150 * time.Millisecond)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
