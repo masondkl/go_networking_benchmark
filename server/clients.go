@@ -141,7 +141,6 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		request := senderAny.(shared.PendingRead)
 
 		length := uint32(9 + len(data))
-		fmt.Printf("Responding to client write size: size=%d\n", length)
 		buffer = shared.GrowSlice(buffer, length)
 		binary.LittleEndian.PutUint32(buffer[:4], length-4)
 		buffer[4] = op

@@ -21,8 +21,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			//if msg.Size() > 1000000 {
 			//	fmt.Printf("Proccessing message of size: %d\n", msg.Size())
 			//}
-
-			fmt.Printf("Writing to peer %d: size=%d\n", msg.To, uint32(msg.Size())+4)
 			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
 			size, err := msg.MarshalTo(buffer[4:])
 			if err != nil {
@@ -32,13 +30,13 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			peerIdx := msg.To - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
-			//fmt.Printf("Sending msg type: %d\n", msg.Type)
-			//if msg.Type == raftpb.MsgSnap {
-			//	log.Printf("Snapshot triggered for node %d:", msg.To)
-			//	log.Printf("  - Reason: %v", msg.Reject) // Usually false
-			//	log.Printf("  - Snapshot size: %d bytes", msg.Snapshot.Size())
-			//	log.Printf("  - Last index: %d", msg.Snapshot.Metadata.Index)
-			//}
+			fmt.Printf("Sending msg type: %d\n", msg.Type)
+			if msg.Type == raftpb.MsgSnap {
+				log.Printf("Snapshot triggered for node %d:", msg.To)
+				log.Printf("  - Reason: %v", msg.Reject) // Usually false
+				log.Printf("  - Snapshot size: %d bytes", msg.Snapshot.Size())
+				log.Printf("  - Last index: %d", msg.Snapshot.Metadata.Index)
+			}
 			//fmt.Printf("Sending peer message: %d\n", len(msg.Entries))
 			peer.WriteLock.Lock()
 			if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
@@ -105,7 +103,6 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 		totalSize := binary.LittleEndian.Uint32(readBuffer[:4])
-		fmt.Printf("Peer conn read size: size=%d - index=%d\n", totalSize, peerIndex)
 		readBuffer = shared.GrowSlice(readBuffer, totalSize)
 		if err := shared.Read(conn, readBuffer[:totalSize]); err != nil {
 			return
