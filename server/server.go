@@ -285,6 +285,11 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[16:20])
 		op := entry.Data[20]
 		s.dbChannel <- entry.Data
+		if entry.Index < s.applyIndex {
+			fmt.Printf("Index is less than apply index?!: entr=%d - apply=%d", entry.Index, s.applyIndex)
+		}
+		s.applyIndex = entry.Index
+		s.Trigger(s.applyIndex)
 		if s.flags.FastPathWrites {
 			if ownerIndex == uint32(s.config.ID) && (op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY) {
 				go s.respondToClient(op, messageId, nil)
@@ -293,17 +298,12 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	}
 }
 
-func (s *Server) processSnapshot(snap raftpb.Snapshot) {
-	if !raft.IsEmptySnap(snap) {
-		log.Println("Processing snapshot")
-		//
-	}
-}
 func (s *Server) processReadStates(readStates []raft.ReadState) {
 	for _, rs := range readStates {
 		messageId := uuid.UUID(rs.RequestCtx)
 
 		val, ok := s.senders.Load(messageId)
+
 		if !ok {
 			panic(fmt.Sprintf("Sender not found for messageId-%d", messageId))
 		}
@@ -313,7 +313,23 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 			panic(fmt.Sprintf("Invalid type in senders map for messageId-%d", messageId))
 		}
 
-		s.dbChannel <- readReq.Key
+		if rs.Index <= s.applyIndex {
+			s.dbChannel <- readReq.Key
+		} else {
+			ch := make(chan struct{})
+			s.waiters[rs.Index] = append(s.waiters[rs.Index], ch)
+			go func(state raft.ReadState, read shared.PendingRead) {
+				<-ch
+				s.dbChannel <- read.Key
+			}(rs, readReq)
+		}
+	}
+}
+
+func (s *Server) processSnapshot(snap raftpb.Snapshot) {
+	if !raft.IsEmptySnap(snap) {
+		log.Println("Processing snapshot")
+		//
 	}
 }
 func (s *Server) processReady(rd raft.Ready) {
