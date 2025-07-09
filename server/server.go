@@ -100,8 +100,8 @@ func (s *Server) setupRaft() {
 	s.storage = raft.NewMemoryStorage()
 	s.config = &raft.Config{
 		ID:              uint64(s.flags.NodeIndex + 1),
-		ElectionTick:    300,
-		HeartbeatTick:   30,
+		ElectionTick:    10,
+		HeartbeatTick:   5,
 		Storage:         s.storage,
 		MaxSizePerMsg:   math.MaxUint32,
 		MaxInflightMsgs: 1000000,
