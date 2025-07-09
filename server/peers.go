@@ -47,7 +47,8 @@ import (
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	for _, msg := range msgs {
 		go func() {
-			fmt.Printf("sending to %d - %d %d %v\n", msg.To, msg.Size()+4, len(msg.Entries), msg.Type)
+			fmt.Printf("sending to %d, index=%d commit=%d size=%d entries=%d type=%v\n", msg.To, msg.Index, msg.Commit, msg.Size()+4, len(msg.Entries), msg.Type)
+			//fmt.Printf("sending to %d - %d, %d %d %v\n", msg.To, msg.Index, msg.Size()+4, len(msg.Entries), msg.Type)
 			buffer := s.pool.Get().([]byte)
 			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
 			size, err := msg.MarshalTo(buffer[4:])
@@ -136,7 +137,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if err := msg.Unmarshal(readBuffer[:size]); err != nil {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
-		fmt.Printf("recv from %d - %d %d %v\n", msg.From, size, len(msg.Entries), msg.Type)
+		fmt.Printf("recv from %d, index=%d commit=%d size=%d entries=%d type=%v\n", msg.From, msg.Index, msg.Commit, size, len(msg.Entries), msg.Type)
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
 				log.Printf("Step error: %v", err)
