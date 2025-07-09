@@ -110,7 +110,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
 
-		fmt.Printf("Received peer message: %d, %d\n", len(msg.Entries), msg.Index)
+		fmt.Printf("Received peer message: %d, %d, %d\n", len(msg.Entries), msg.Index, msg.From)
 
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
