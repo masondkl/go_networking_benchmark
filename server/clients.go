@@ -21,6 +21,8 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 			return
 		}
 
+		fmt.Printf("Got a client message from %s\n")
+
 		amount := binary.LittleEndian.Uint32(readBuffer[:4])
 		if err := shared.Read(conn, readBuffer[:amount]); err != nil {
 			log.Printf("Error reading message: %v", err)
