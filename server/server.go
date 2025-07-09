@@ -101,7 +101,7 @@ func (s *Server) setupRaft() {
 	s.config = &raft.Config{
 		ID:              uint64(s.flags.NodeIndex + 1),
 		ElectionTick:    120,
-		HeartbeatTick:   10,
+		HeartbeatTick:   5,
 		Storage:         s.storage,
 		MaxSizePerMsg:   math.MaxUint32,
 		MaxInflightMsgs: 1000000,
