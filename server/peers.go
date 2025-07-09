@@ -14,13 +14,13 @@ import (
 )
 
 func (s *Server) processMessages(msgs []raftpb.Message) {
-	//fmt.Printf("Processing total messages: %d\n", len(msgs))
+	fmt.Printf("Processing total messages: %d\n", len(msgs))
 	for _, m := range msgs {
 		go func(msg raftpb.Message) {
 			buffer := s.pool.Get().([]byte)
-			//if msg.Size() > 1000000 {
-			//	fmt.Printf("Proccessing message of size: %d\n", msg.Size())
-			//}
+			if msg.Size() > 1000000 {
+				fmt.Printf("Proccessing message of size: %d\n", msg.Size())
+			}
 			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
 			size, err := msg.MarshalTo(buffer[4:])
 			if err != nil {
@@ -30,7 +30,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			peerIdx := msg.To - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
-			//fmt.Printf("Sending peer message: %d\n", len(msg.Entries))
+			fmt.Printf("Sending peer message: %d\n", len(msg.Entries))
 			peer.WriteLock.Lock()
 			if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
 				log.Printf("Write error to peer %d: %v", msg.To, err)
@@ -101,14 +101,16 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 
-		//if totalSize > 1000000 {
-		//	fmt.Printf("Stepping with message of size: %d\n", totalSize)
-		//}
+		if totalSize > 1000000 {
+			fmt.Printf("Stepping with message of size: %d\n", totalSize)
+		}
 
 		var msg raftpb.Message
 		if err := msg.Unmarshal(readBuffer[:totalSize]); err != nil {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
+
+		fmt.Printf("Received peer message: %d, %d, %d\n", len(msg.Entries), msg.Index, msg.From)
 
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
