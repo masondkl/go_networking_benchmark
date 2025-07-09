@@ -17,7 +17,9 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	for _, msg := range msgs {
 		go func() {
 			buffer := s.pool.Get().([]byte)
-			fmt.Printf("Proccessing message of size: %d\n", msg.Size())
+			if msg.Size() > 1000000 {
+				fmt.Printf("Proccessing message of size: %d\n", msg.Size())
+			}
 			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
 			size, err := msg.MarshalTo(buffer[4:])
 			if err != nil {
@@ -97,7 +99,9 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 
-		fmt.Printf("Stepping with message of size: %d\n", totalSize)
+		if totalSize > 1000000 {
+			fmt.Printf("Stepping with message of size: %d\n", totalSize)
+		}
 
 		var msg raftpb.Message
 		if err := msg.Unmarshal(readBuffer[:totalSize]); err != nil {
