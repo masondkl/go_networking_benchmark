@@ -30,7 +30,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			peerIdx := msg.To - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
-			fmt.Printf("Sending peer message: %d\n", len(msg.Entries))
 			peer.WriteLock.Lock()
 			if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
 				log.Printf("Write error to peer %d: %v", msg.To, err)
@@ -110,7 +109,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
 
-		fmt.Printf("Received peer message: %d\n", len(msg.Entries))
+		fmt.Printf("Received peer message: %+v\n", len(msg.Entries))
 
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
