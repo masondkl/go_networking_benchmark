@@ -119,9 +119,7 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 		//fmt.Println("propose")
 		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
 		go func() {
-			if len(dataCopy) > 1000000 {
-				fmt.Printf("Proposing message with size: %d\n", len(dataCopy))
-			}
+			fmt.Printf("Proposing message with size: %d\n", len(dataCopy))
 			if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
 				panic(err)
 			}
