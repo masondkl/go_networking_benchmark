@@ -65,6 +65,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
 			peer.WriteLock.Lock()
+			fmt.Printf("Writing over: %d\n", offset)
 			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
 				log.Printf("Write error to peer %d: %v", to, err)
 			}
@@ -90,6 +91,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 		totalSize := binary.LittleEndian.Uint32(readBuffer[:4])
+		fmt.Printf("Total size: %d\n", totalSize)
 		readBuffer = shared.GrowSlice(readBuffer, totalSize)
 		if err := shared.Read(conn, readBuffer[:totalSize]); err != nil {
 			return
