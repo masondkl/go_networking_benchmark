@@ -55,7 +55,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				buffer = shared.GrowSlice(buffer, uint32(offset+4+msg.Size()))
 				size, err := msg.MarshalTo(buffer[offset+4:])
 				if err != nil {
-					return
+					panic("Returned?")
 				}
 				binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
 				offset += size + 4
