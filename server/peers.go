@@ -16,7 +16,6 @@ import (
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	fmt.Printf("Processing total messages: %d\n", len(msgs))
 	for _, m := range msgs {
-		msgCopy := m
 		go func(msg raftpb.Message) {
 			buffer := s.pool.Get().([]byte)
 			if msg.Size() > 1000000 {
@@ -37,7 +36,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			}
 			peer.WriteLock.Unlock()
 			s.pool.Put(buffer)
-		}(msgCopy)
+		}(m)
 	}
 	//
 	//grouped := make(map[uint64][]raftpb.Message)
