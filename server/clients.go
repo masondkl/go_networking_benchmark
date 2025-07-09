@@ -110,22 +110,22 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 		ctx := make([]byte, 16)
 		copy(ctx[:], messageId[:16])
 		s.senders.Store(messageId, shared.PendingRead{Connection: conn, WriteLock: writeLock, Key: dataCopy})
-		//go func() {
-		if err := s.node.ReadIndex(context.TODO(), ctx); err != nil {
-			fmt.Printf("Error reading index: %v", err)
-		}
-		//}()
+		go func() {
+			if err := s.node.ReadIndex(context.TODO(), ctx); err != nil {
+				fmt.Printf("Error reading index: %v", err)
+			}
+		}()
 	} else {
 		//fmt.Println("propose")
 		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
-		//go func() {
-		//	if len(dataCopy) > 1000000 {
-		//		fmt.Printf("Proposing message with size: %d\n", len(dataCopy))
-		//	}
-		if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
-			panic(err)
-		}
-		//}()
+		go func() {
+			if len(dataCopy) > 1000000 {
+				fmt.Printf("Proposing message with size: %d\n", len(dataCopy))
+			}
+			if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
+				panic(err)
+			}
+		}()
 	}
 }
 
