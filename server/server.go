@@ -88,12 +88,12 @@ func (s *Server) initPool() {
 
 	//atomic.AddUint32(&s.poolSize, uint32(*PoolWarmupSize))
 
-	//go func() {
-	//	for {
-	//		time.Sleep(500 * time.Millisecond)
-	//		fmt.Printf("Created pool buffers: %d\n", atomic.LoadUint32(&created))
-	//	}
-	//}()
+	go func() {
+		for {
+			time.Sleep(500 * time.Millisecond)
+			fmt.Printf("Created pool buffers: %d\n", atomic.LoadUint32(&created))
+		}
+	}()
 }
 
 func (s *Server) setupRaft() {

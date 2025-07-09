@@ -41,8 +41,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		grouped[m.To] = append(grouped[m.To], m)
 	}
 
-	fmt.Printf("Processing %d messages\n", len(msgs))
-
 	for to, group := range grouped {
 		go func(to uint64, group []raftpb.Message) {
 			var offset = 8
