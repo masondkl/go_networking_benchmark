@@ -170,76 +170,76 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 		if err := s.storage.Append(entries); err != nil {
 			log.Printf("Append entries error: %v", err)
 		}
-	}
 
-	if !(s.flags.Memory) {
-		var grouped = make(map[uint64][]raftpb.Entry)
-		group := sync.WaitGroup{}
-		entryCount := 0
-		for _, e := range entries {
-			if e.Type == raftpb.EntryNormal {
-				walIndex := e.Index % uint64(s.flags.WalFileCount)
-				grouped[walIndex] = append(grouped[walIndex], e)
-				entryCount++
-			}
-		}
-		if entryCount == 0 {
-			return
-		}
-
-		group.Add(len(grouped))
-
-		for walIndex := range grouped {
-			walEntries := grouped[walIndex]
-			slot := s.walSlots[walIndex]
-			buffer := s.pool.Get().([]byte)
-			size := 0
-			for entryIndex := range walEntries {
-				size += walEntries[entryIndex].Size()
-			}
-			buffer = shared.GrowSlice(buffer, uint32(size))
-			size = 0
-			for entryIndex := range walEntries {
-				entry := walEntries[entryIndex]
-				entrySize, err := entry.MarshalTo(buffer[size:])
-				if err != nil {
-					panic(err)
+		if !(s.flags.Memory) {
+			var grouped = make(map[uint64][]raftpb.Entry)
+			group := sync.WaitGroup{}
+			entryCount := 0
+			for _, e := range entries {
+				if e.Type == raftpb.EntryNormal {
+					walIndex := e.Index % uint64(s.flags.WalFileCount)
+					grouped[walIndex] = append(grouped[walIndex], e)
+					entryCount++
 				}
-				size += entrySize
 			}
-			go func() {
-				count := 0
-				for {
-					wrote, err := slot.file.Write(buffer[count:size])
+			if entryCount == 0 {
+				return
+			}
+
+			group.Add(len(grouped))
+
+			for walIndex := range grouped {
+				walEntries := grouped[walIndex]
+				slot := s.walSlots[walIndex]
+				buffer := s.pool.Get().([]byte)
+				size := 0
+				for entryIndex := range walEntries {
+					size += walEntries[entryIndex].Size()
+				}
+				buffer = shared.GrowSlice(buffer, uint32(size))
+				size = 0
+				for entryIndex := range walEntries {
+					entry := walEntries[entryIndex]
+					entrySize, err := entry.MarshalTo(buffer[size:])
 					if err != nil {
 						panic(err)
 					}
-					count += wrote
-					if count == size {
-						break
-					}
+					size += entrySize
 				}
-				s.pool.Put(buffer)
-				if s.flags.Manual == "fsync" {
-					err := syscall.Fsync(int(slot.file.Fd()))
-					if err != nil {
-						fmt.Println("Error fsyncing file: ", err)
-						return
+				go func() {
+					count := 0
+					for {
+						wrote, err := slot.file.Write(buffer[count:size])
+						if err != nil {
+							panic(err)
+						}
+						count += wrote
+						if count == size {
+							break
+						}
 					}
-				} else if s.flags.Manual == "dsync" {
-					err := syscall.Fdatasync(int(slot.file.Fd()))
-					if err != nil {
-						fmt.Println("Error fsyncing file: ", err)
-						return
+					s.pool.Put(buffer)
+					if s.flags.Manual == "fsync" {
+						err := syscall.Fsync(int(slot.file.Fd()))
+						if err != nil {
+							fmt.Println("Error fsyncing file: ", err)
+							return
+						}
+					} else if s.flags.Manual == "dsync" {
+						err := syscall.Fdatasync(int(slot.file.Fd()))
+						if err != nil {
+							fmt.Println("Error fsyncing file: ", err)
+							return
+						}
 					}
-				}
-				group.Done()
-			}()
-		}
-		group.Wait()
+					group.Done()
+				}()
+			}
+			group.Wait()
 
-		for k := range grouped {
-			delete(grouped, k)
+			for k := range grouped {
+				delete(grouped, k)
+			}
 		}
 	}
 }
@@ -283,6 +283,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 func (s *Server) processSnapshot(snap raftpb.Snapshot) {
 	if !raft.IsEmptySnap(snap) {
 		log.Println("Processing snapshot")
+		//
 	}
 }
 func (s *Server) processReadStates(readStates []raft.ReadState) {
@@ -307,6 +308,7 @@ func (s *Server) processReady(rd raft.Ready) {
 	s.processSnapshot(rd.Snapshot)
 	s.processEntries(rd.Entries)
 	s.processMessages(rd.Messages)
+	fmt.Printf("Commit index: %d\n", rd.Commit)
 	s.processCommittedEntries(rd.CommittedEntries)
 	s.processReadStates(rd.ReadStates)
 	s.node.Advance()

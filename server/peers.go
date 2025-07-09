@@ -46,25 +46,25 @@ import (
 
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	for _, msg := range msgs {
-		go func() {
-			fmt.Printf("sending %d %d %v\n", msg.Size()+4, len(msg.Entries), msg.Type)
-			buffer := s.pool.Get().([]byte)
-			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
-			size, err := msg.MarshalTo(buffer[4:])
-			if err != nil {
-				return
-			}
-			binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
-			peerIdx := msg.To - 1
-			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-			peer := s.peerConnections[peerIdx][connIdx]
-			peer.WriteLock.Lock()
-			if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
-				log.Printf("Write error to peer %d: %v", msg.To, err)
-			}
-			peer.WriteLock.Unlock()
-			s.pool.Put(buffer)
-		}()
+		//go func() {
+		fmt.Printf("sending to %d - %d %d %v\n", msg.To, msg.Size()+4, len(msg.Entries), msg.Type)
+		buffer := s.pool.Get().([]byte)
+		buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
+		size, err := msg.MarshalTo(buffer[4:])
+		if err != nil {
+			return
+		}
+		binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
+		peerIdx := msg.To - 1
+		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+		peer := s.peerConnections[peerIdx][connIdx]
+		peer.WriteLock.Lock()
+		if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
+			log.Printf("Write error to peer %d: %v", msg.To, err)
+		}
+		peer.WriteLock.Unlock()
+		s.pool.Put(buffer)
+		//}()
 	}
 
 	//var grouped = make(map[uint64][]raftpb.Message)
@@ -136,7 +136,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if err := msg.Unmarshal(readBuffer[:size]); err != nil {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
-		fmt.Printf("recv %d %d %v\n", size, len(msg.Entries), msg.Type)
+		fmt.Printf("recv from %d - %d %d %v\n", msg.From, size, len(msg.Entries), msg.Type)
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
 				log.Printf("Step error: %v", err)
