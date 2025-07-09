@@ -287,7 +287,7 @@ func (s *Server) processSnapshot(snap raftpb.Snapshot) {
 }
 func (s *Server) processReadStates(readStates []raft.ReadState) {
 	for _, rs := range readStates {
-		//fmt.Printf("Processing read state!\n")
+		fmt.Printf("Processing read state!\n")
 		messageId := uuid.UUID(rs.RequestCtx)
 
 		val, ok := s.senders.Load(messageId)
