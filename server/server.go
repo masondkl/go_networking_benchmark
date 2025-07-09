@@ -66,6 +66,8 @@ type Server struct {
 	dbChannel           chan []byte
 	poolSize            uint32
 	flags               *ServerFlags
+	applyIndex          uint64
+	waiters             map[uint64][]chan struct{}
 }
 
 var created = uint32(0)
@@ -265,6 +267,17 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 	s.node.ApplyConfChange(cc)
 }
 
+func (s *Server) Trigger(appliedIndex uint64) {
+	for index, chans := range s.waiters {
+		if index <= appliedIndex {
+			for _, ch := range chans {
+				close(ch) // unblock the s
+			}
+			delete(s.waiters, index) // clean up
+		}
+	}
+}
+
 func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	//fmt.Printf("Processing commited entry: %v\n", entry)
 	if len(entry.Data) >= 8 {
@@ -370,6 +383,7 @@ func NewServer(serverFlags *ServerFlags) *Server {
 		hardstateMutex: &sync.Mutex{},
 		dbChannel:      make(chan []byte, 10000000),
 		flags:          serverFlags,
+		waiters:        make(map[uint64][]chan struct{}),
 	}
 
 	s.initPool()
