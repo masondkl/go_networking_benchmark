@@ -27,7 +27,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			for i := range group {
 				offset += group[i].Size() + 4
 			}
-			fmt.Printf("We need to grow to: %d\n", offset)
 			buffer = shared.GrowSlice(buffer, uint32(offset))
 			offset = 8
 			for i := range group {
