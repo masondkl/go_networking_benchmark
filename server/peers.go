@@ -60,6 +60,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
 				offset += size + 4
 			}
+			fmt.Printf("Send(to=%d, %d, %d)\n", to, offset-4, len(group))
 			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
 			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
 			peerIdx := to - 1
@@ -98,6 +99,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 		msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
+		fmt.Printf("Recv(from=%d, %d, %d)\n", peerIndex, totalSize, msgCount)
 		offset := uint32(4)
 		for i := uint32(0); i < msgCount; i++ {
 			size := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
