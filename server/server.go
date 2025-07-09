@@ -302,15 +302,12 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 		s.dbChannel <- readReq.Key
 	}
 }
-
 func (s *Server) processReady(rd raft.Ready) {
 	s.processHardState(rd.HardState)
 	s.processSnapshot(rd.Snapshot)
 	s.processEntries(rd.Entries)
-	msgs := append([]raftpb.Message(nil), rd.Messages...)
-	s.processMessages(msgs)
-	committed := append([]raftpb.Entry(nil), rd.CommittedEntries...)
-	s.processCommittedEntries(committed)
+	s.processMessages(rd.Messages)
+	s.processCommittedEntries(rd.CommittedEntries)
 	s.processReadStates(rd.ReadStates)
 	s.node.Advance()
 }
