@@ -11,10 +11,14 @@ const OP_READ = 2
 const OP_READ_MEMORY = 3
 const OP_LEADER = 4
 
-type PendingRead struct {
+type Client struct {
 	Connection net.Conn
-	WriteLock  *sync.Mutex
-	Key        []byte
+	Channel    chan func()
+}
+
+type PendingRead struct {
+	Client Client
+	Key    []byte
 }
 
 func GrowSlice(buffer []byte, required uint32) []byte {
@@ -60,5 +64,5 @@ type ClientRequest struct {
 
 type PeerConnection struct {
 	Connection *net.Conn
-	WriteLock  *sync.Mutex
+	Channel    chan func()
 }

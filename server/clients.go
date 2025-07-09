@@ -3,18 +3,32 @@ package server
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"github.com/google/uuid"
 	"log"
 	"net"
 	"networking_benchmark/shared"
-	"sync"
 )
 
+type raftRequest struct {
+	ctx    context.Context
+	data   []byte // For Propose: proposal data; For ReadIndex: ctx data
+	isRead bool   // true for ReadIndex, false for Propose
+}
+
 func (s *Server) handleClientConnection(conn net.Conn) {
-	writeLock := &sync.Mutex{}
 	readBuffer := make([]byte, 1000000)
 	leaderBuffer := make([]byte, 1)
+
+	client := shared.Client{
+		Connection: conn,
+		Channel:    make(chan func(), 1000000),
+	}
+
+	go func() {
+		for task := range client.Channel {
+			task()
+		}
+	}()
 
 	for {
 		if err := shared.Read(conn, readBuffer[:4]); err != nil {
@@ -40,7 +54,7 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 			continue
 		}
 
-		s.handleClientMessage(conn, writeLock, readBuffer[:amount])
+		s.handleClientMessage(client, readBuffer[:amount])
 	}
 }
 
@@ -93,7 +107,7 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 //		//	}()
 //		//}
 //	}
-func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data []byte) {
+func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 	messageId := uuid.New()
 	ownerId := uint32(s.config.ID)
 
@@ -109,20 +123,19 @@ func (s *Server) handleClientMessage(conn net.Conn, writeLock *sync.Mutex, data 
 		//fmt.Println("readindex")
 		ctx := make([]byte, 16)
 		copy(ctx[:], messageId[:16])
-		s.senders.Store(messageId, shared.PendingRead{Connection: conn, WriteLock: writeLock, Key: dataCopy})
-		go func() {
+		s.senders.Store(messageId, shared.PendingRead{Client: client, Key: dataCopy})
+		s.proposeChannel <- func() {
 			if err := s.node.ReadIndex(context.TODO(), ctx); err != nil {
-				fmt.Printf("Error reading index: %v", err)
+				log.Printf("ReadIndex error: %v", err)
 			}
-		}()
+		}
 	} else {
-		//fmt.Println("propose")
-		s.senders.Store(messageId, shared.ClientRequest{Connection: conn, WriteLock: writeLock})
-		go func() {
+		s.senders.Store(messageId, client)
+		s.proposeChannel <- func() {
 			if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
-				panic(err)
+				log.Printf("Propose error: %v", err)
 			}
-		}()
+		}
 	}
 }
 
@@ -130,13 +143,13 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 	if op == shared.OP_READ || op == shared.OP_READ_MEMORY {
 		senderAny, ok := s.senders.LoadAndDelete(id)
 		//fmt.Printf("Removing index: %d\n", index)
-		buffer := s.pool.Get().([]byte)
 		if !ok {
 			log.Printf("No sender found for id %d", id)
 			return
 		}
 		request := senderAny.(shared.PendingRead)
 
+		buffer := s.pool.Get().([]byte)
 		length := uint32(9 + len(data))
 		buffer = shared.GrowSlice(buffer, length)
 		binary.LittleEndian.PutUint32(buffer[:4], length-4)
@@ -144,30 +157,29 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(data)))
 		copy(buffer[9:length], data)
 
-		request.WriteLock.Lock()
-		if err := shared.Write(request.Connection, buffer[:length]); err != nil {
-			log.Printf("Write error: %v", err)
+		request.Client.Channel <- func() {
+			if err := shared.Write(request.Client.Connection, buffer[:length]); err != nil {
+				log.Printf("Write error: %v", err)
+			}
+			s.pool.Put(buffer)
 		}
-		request.WriteLock.Unlock()
-		s.pool.Put(buffer)
 	} else if op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY {
 		senderAny, ok := s.senders.LoadAndDelete(id)
-		//fmt.Printf("Removing index: %d\n", index)
-		buffer := s.pool.Get().([]byte)
 		if !ok {
 			log.Printf("No sender found for id %d", id)
 			return
 		}
-		request := senderAny.(shared.ClientRequest)
-		binary.LittleEndian.PutUint32(buffer[:4], 1)
-		buffer[4] = op
-		length := uint32(5)
-		request.WriteLock.Lock()
-		if err := shared.Write(request.Connection, buffer[:length]); err != nil {
-			log.Printf("Write error: %v", err)
+		request := senderAny.(shared.Client)
+		request.Channel <- func() {
+			buffer := s.pool.Get().([]byte)
+			binary.LittleEndian.PutUint32(buffer[:4], 1)
+			buffer[4] = op
+			length := uint32(5)
+			if err := shared.Write(request.Connection, buffer[:length]); err != nil {
+				log.Printf("Write error: %v", err)
+			}
+			s.pool.Put(buffer)
 		}
-		request.WriteLock.Unlock()
-		s.pool.Put(buffer)
 	}
 }
 

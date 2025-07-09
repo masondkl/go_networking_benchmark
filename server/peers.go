@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"networking_benchmark/shared"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -46,26 +45,27 @@ import (
 
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	for _, msg := range msgs {
-		go func() {
-			fmt.Printf("sending to %d, index=%d commit=%d size=%d entries=%d type=%v\n", msg.To, msg.Index, msg.Commit, msg.Size()+4, len(msg.Entries), msg.Type)
-			//fmt.Printf("sending to %d - %d, %d %d %v\n", msg.To, msg.Index, msg.Size()+4, len(msg.Entries), msg.Type)
-			buffer := s.pool.Get().([]byte)
-			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
-			size, err := msg.MarshalTo(buffer[4:])
-			if err != nil {
-				return
-			}
-			binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
-			peerIdx := msg.To - 1
-			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-			peer := s.peerConnections[peerIdx][connIdx]
-			peer.WriteLock.Lock()
+		//go func() {
+
+		fmt.Printf("sending to %d, index=%d commit=%d size=%d entries=%d type=%v\n", msg.To, msg.Index, msg.Commit, msg.Size()+4, len(msg.Entries), msg.Type)
+		//fmt.Printf("sending to %d - %d, %d %d %v\n", msg.To, msg.Index, msg.Size()+4, len(msg.Entries), msg.Type)
+		buffer := s.pool.Get().([]byte)
+		buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
+		size, err := msg.MarshalTo(buffer[4:])
+		if err != nil {
+			return
+		}
+		binary.LittleEndian.PutUint32(buffer[:4], uint32(size))
+		peerIdx := msg.To - 1
+		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+		peer := s.peerConnections[peerIdx][connIdx]
+		peer.Channel <- func() {
 			if err := shared.Write(*peer.Connection, buffer[:size+4]); err != nil {
 				log.Printf("Write error to peer %d: %v", msg.To, err)
 			}
-			peer.WriteLock.Unlock()
 			s.pool.Put(buffer)
-		}()
+		}
+		//}()
 	}
 
 	//var grouped = make(map[uint64][]raftpb.Message)
@@ -138,11 +138,16 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
 		fmt.Printf("recv from %d, index=%d commit=%d size=%d entries=%d type=%v\n", msg.From, msg.Index, msg.Commit, size, len(msg.Entries), msg.Type)
-		go func() {
+		s.stepChannel <- func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
 				log.Printf("Step error: %v", err)
 			}
-		}()
+		}
+		//go func() {
+		//	if err := s.node.Step(context.TODO(), msg); err != nil {
+		//		log.Printf("Step error: %v", err)
+		//	}
+		//}()
 		//msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
 		//
 		////if totalSize > 10000 {
@@ -186,10 +191,17 @@ func (s *Server) connectToPeer(peerIdx, connIdx int) {
 			panic(err)
 		}
 
-		s.peerConnections[peerIdx][connIdx] = shared.PeerConnection{
+		peerConn := shared.PeerConnection{
 			Connection: &conn,
-			WriteLock:  &sync.Mutex{},
+			Channel:    make(chan func(), 1000000),
 		}
+
+		go func() {
+			for task := range peerConn.Channel {
+				task()
+			}
+		}()
+		s.peerConnections[peerIdx][connIdx] = peerConn
 		break
 	}
 }

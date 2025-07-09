@@ -68,6 +68,8 @@ type Server struct {
 	flags               *ServerFlags
 	applyIndex          uint64
 	waiters             map[uint64][]chan struct{}
+	stepChannel         chan func()
+	proposeChannel      chan func()
 }
 
 var created = uint32(0)
@@ -400,7 +402,21 @@ func NewServer(serverFlags *ServerFlags) *Server {
 		dbChannel:      make(chan []byte, 10000000),
 		flags:          serverFlags,
 		waiters:        make(map[uint64][]chan struct{}),
+		proposeChannel: make(chan func(), 1000000),
+		stepChannel:    make(chan func(), 1000000),
 	}
+
+	go func() {
+		for task := range s.proposeChannel {
+			task()
+		}
+	}()
+
+	go func() {
+		for task := range s.stepChannel {
+			task()
+		}
+	}()
 
 	s.initPool()
 
