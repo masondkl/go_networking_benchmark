@@ -30,7 +30,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			peerIdx := msg.To - 1
 			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 			peer := s.peerConnections[peerIdx][connIdx]
-			fmt.Printf("Sending msg type: %d\n", msg.Type)
 			if msg.Type == raftpb.MsgSnap {
 				log.Printf("Snapshot triggered for node %d:", msg.To)
 				log.Printf("  - Reason: %v", msg.Reject) // Usually false
@@ -116,8 +115,6 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if err := msg.Unmarshal(readBuffer[:totalSize]); err != nil {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
-
-		fmt.Printf("Received msg type: %d from %d\n", msg.Type, msg.From)
 
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
