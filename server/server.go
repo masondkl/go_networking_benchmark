@@ -308,7 +308,7 @@ func (s *Server) processReady(rd raft.Ready) {
 	s.processSnapshot(rd.Snapshot)
 	s.processEntries(rd.Entries)
 	s.processMessages(rd.Messages)
-	fmt.Printf("Commit index: %d\n", rd.Commit)
+	fmt.Printf("Commit index: %d\n", rd.HardState.Commit)
 	s.processCommittedEntries(rd.CommittedEntries)
 	s.processReadStates(rd.ReadStates)
 	s.node.Advance()
