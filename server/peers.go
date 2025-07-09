@@ -47,7 +47,7 @@ import (
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	for _, msg := range msgs {
 		go func() {
-			fmt.Printf("sending %d\n", msg.Size())
+			fmt.Printf("sending %d %d %v\n", msg.Size()+4, len(msg.Entries), msg.Type)
 			buffer := s.pool.Get().([]byte)
 			buffer = shared.GrowSlice(buffer, uint32(msg.Size())+4)
 			size, err := msg.MarshalTo(buffer[4:])
