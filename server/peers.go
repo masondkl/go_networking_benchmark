@@ -97,13 +97,10 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 
-		fmt.Printf("Stepping with message of size: %d\n", totalSize)
-
 		var msg raftpb.Message
 		if err := msg.Unmarshal(readBuffer[:totalSize]); err != nil {
 			panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 		}
-
 		go func() {
 			if err := s.node.Step(context.TODO(), msg); err != nil {
 				log.Printf("Step error: %v", err)
