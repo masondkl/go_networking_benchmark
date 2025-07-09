@@ -110,6 +110,7 @@ func (s *Server) DbHandler() {
 			} else if op == shared.OP_WRITE {
 				valueSize := binary.LittleEndian.Uint32(data[keySize+25:])
 				value := data[keySize+29 : keySize+29+valueSize]
+				memoryDb[string(key)] = value
 				err := Put(key, value)
 				if err != nil {
 					panic(err)
