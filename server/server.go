@@ -79,7 +79,6 @@ var poolSize uint32
 func (s *Server) initPool() {
 	s.pool = sync.Pool{
 		New: func() interface{} {
-			fmt.Printf("Making a new buffer\n")
 			return make([]byte, s.flags.PoolDataSize)
 		},
 	}
