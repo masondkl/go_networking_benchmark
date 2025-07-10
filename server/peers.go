@@ -87,8 +87,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		//	offset += group[i].Size() + 4
 		//}
 		peerIdx := to - 1
-		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-		peer := s.peerConnections[peerIdx][connIdx]
+		//connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+		peer := s.peerConnections[peerIdx][0]
 		peer.Channel <- func() {
 			buffer := s.pool.Get().([]byte)
 			atomic.AddUint32(&s.poolSize, ^uint32(0))
