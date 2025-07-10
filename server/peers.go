@@ -79,7 +79,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		grouped[m.To] = append(grouped[m.To], m)
 	}
 
-	fmt.Printf("processing %d messages\n", len(msgs))
+	//fmt.Printf("processing %d messages\n", len(msgs))
 	//
 	for to, group := range grouped {
 		buffer := s.pool.Get().([]byte)
