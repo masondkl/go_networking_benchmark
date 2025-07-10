@@ -180,12 +180,13 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			//		log.Printf("Step error: %v", err)
 			//	}
 			//}()
-			msgCopy := msg
-			s.stepChannel <- func() {
-				if err := s.node.Step(context.TODO(), msgCopy); err != nil {
-					log.Printf("Step error: %v", err)
+			func(msgCopy raftpb.Message) {
+				s.stepChannel <- func() {
+					if err := s.node.Step(context.TODO(), msgCopy); err != nil {
+						log.Printf("Step error: %v", err)
+					}
 				}
-			}
+			}(msg)
 		}
 	}
 }
