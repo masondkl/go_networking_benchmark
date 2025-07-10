@@ -144,7 +144,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		op := readBuffer[0]
 		//fmt.Printf("Got op: %d\n", op)
 		if op == shared.OP_FORWARD {
-			fmt.Printf("Got forward from peer %d, %d\n", peerIndex, totalSize)
+			fmt.Printf("\nGot forward from peer %d, %d\n", peerIndex, totalSize)
 			dataCopy := make([]byte, totalSize)
 			copy(dataCopy, readBuffer[:totalSize])
 			s.proposeChannel <- func() {
