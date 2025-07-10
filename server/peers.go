@@ -107,16 +107,14 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		peerIdx := to - 1
 		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 		peer := s.peerConnections[peerIdx][connIdx]
-
-		func(to uint64, group []raftpb.Message, peer shared.PeerConnection) {
-			peer.Channel <- func() {
-				if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
-					log.Printf("Write error to peer %d: %v", to, err)
-				}
-				atomic.AddUint32(&s.poolSize, 1)
-				s.pool.Put(buffer)
+		peer.Channel <- func() {
+			fmt.Printf("Writing out message: %d\n", offset)
+			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
+				log.Printf("Write error to peer %d: %v", to, err)
 			}
-		}(to, group, peer)
+			atomic.AddUint32(&s.poolSize, 1)
+			s.pool.Put(buffer)
+		}
 	}
 }
 
