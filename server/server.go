@@ -304,7 +304,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 			}
 		}
 	}
-	fmt.Printf("Entry index: %d\n", entry.Index)
+	//fmt.Printf("Entry index: %d\n", entry.Index)
 }
 
 var reads uint32
