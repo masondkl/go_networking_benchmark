@@ -95,8 +95,8 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		binary.LittleEndian.PutUint32(buffer[21:25], ownerId)
 		copy(buffer[25:size], data)
 
-		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[s.leader-1], 1) % uint32(s.flags.NumPeerConnections)
-		peer := s.peerConnections[s.leader-1][connIdx]
+		//connIdx := atomic.AddUint32(&s.peerConnRoundRobins[s.leader-1], 1) % uint32(s.flags.NumPeerConnections)
+		peer := s.peerConnections[s.leader-1][0]
 
 		peer.Channel <- func() {
 			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {
