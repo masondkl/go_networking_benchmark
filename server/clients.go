@@ -73,7 +73,6 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 
 	size := len(data) + 21
 	s.senders.Store(messageId, client)
-	fmt.Printf("Leader: %d - %d\n", s.leader, s.config.ID)
 	if s.leader == ownerId {
 		dataCopy := make([]byte, size)
 		dataCopy[0] = shared.OP_MESSAGE
