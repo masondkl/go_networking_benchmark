@@ -79,8 +79,9 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		grouped[m.To] = append(grouped[m.To], m)
 	}
 
-	for to, group := range grouped {
+	fmt.Printf("processing %d messages\n", len(msgs))
 
+	for to, group := range grouped {
 		buffer := s.pool.Get().([]byte)
 		atomic.AddUint32(&s.poolSize, ^uint32(0))
 		offset := 9
