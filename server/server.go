@@ -291,6 +291,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 		messageId := uuid.UUID(entry.Data[1:17])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[17:21])
 		op := entry.Data[21]
+		fmt.Printf("We commited\n")
 		s.dbChannel <- entry.Data
 		if s.flags.FastPathWrites && (op == shared.OP_WRITE_MEMORY || op == shared.OP_READ_MEMORY) && ownerIndex == uint32(s.config.ID) {
 			s.respondToClient(op, messageId, nil)
