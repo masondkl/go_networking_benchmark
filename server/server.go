@@ -321,6 +321,8 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 			panic(fmt.Sprintf("Invalid type in senders map for messageId-%d", messageId))
 		}
 
+		fmt.Printf("got read state: %d\n", rs.Index)
+
 		if rs.Index <= s.applyIndex {
 			s.dbChannel <- readReq.Key
 		} else {
