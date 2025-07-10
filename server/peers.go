@@ -89,29 +89,34 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		peerIdx := to - 1
 		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 		peer := s.peerConnections[peerIdx][connIdx]
-		buffer := s.pool.Get().([]byte)
-		atomic.AddUint32(&s.poolSize, ^uint32(0))
-		offset := 8
-		for i := range group {
-			msg := group[i]
-			buffer = shared.GrowSlice(buffer, uint32(offset+4+msg.Size()))
-			size, err := msg.MarshalTo(buffer[offset+4:])
-			if err != nil {
-				panic("Returned?")
+
+		groupCopy := group
+		toCopy := to
+		peerCopy := peer
+
+		peerCopy.Channel <- func() {
+			buffer := s.pool.Get().([]byte)
+			atomic.AddUint32(&s.poolSize, ^uint32(0))
+			offset := 8
+			for i := range groupCopy {
+				msg := groupCopy[i]
+				buffer = shared.GrowSlice(buffer, uint32(offset+4+msg.Size()))
+				size, err := msg.MarshalTo(buffer[offset+4:])
+				if err != nil {
+					log.Printf("Marshal error to peer %d: %v", toCopy, err)
+					s.pool.Put(buffer)
+					return
+				}
+				binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
+				offset += size + 4
 			}
-			binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
-			offset += size + 4
-		}
-		//if offset > 10000 {
-		//	fmt.Printf("Send(to=%d, %d, %d)\n", to, offset-4, len(group))
-		//}
-		binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
-		binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
-		peer.Channel <- func() {
-			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
-				log.Printf("Write error to peer %d: %v", to, err)
+			binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+			binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(groupCopy)))
+
+			if err := shared.Write(*peerCopy.Connection, buffer[:offset]); err != nil {
+				log.Printf("Write error to peer %d: %v", toCopy, err)
 			}
-			atomic.AddUint32(&s.poolSize, uint32(1))
+			atomic.AddUint32(&s.poolSize, 1)
 			s.pool.Put(buffer)
 		}
 		//peer.WriteLock.Lock()
