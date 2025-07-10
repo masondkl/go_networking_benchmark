@@ -105,8 +105,8 @@ func (s *Server) setupRaft() {
 	s.storage = raft.NewMemoryStorage()
 	s.config = &raft.Config{
 		ID:              uint64(s.flags.NodeIndex + 1),
-		ElectionTick:    10,
-		HeartbeatTick:   1,
+		ElectionTick:    20,
+		HeartbeatTick:   10,
 		Storage:         s.storage,
 		MaxSizePerMsg:   math.MaxUint32,
 		MaxInflightMsgs: 1000000,
@@ -291,7 +291,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 		messageId := uuid.UUID(entry.Data[1:17])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[17:21])
 		op := entry.Data[21]
-		fmt.Printf("We commited\n")
+		//fmt.Printf("We commited\n")
 		s.dbChannel <- entry.Data
 		if s.flags.FastPathWrites && (op == shared.OP_WRITE_MEMORY || op == shared.OP_READ_MEMORY) && ownerIndex == uint32(s.config.ID) {
 			s.respondToClient(op, messageId, nil)

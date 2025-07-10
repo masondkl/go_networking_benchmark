@@ -87,8 +87,9 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		}
 	} else {
 		size += 4
-		buffer := s.pool.Get().([]byte)
-		buffer = shared.GrowSlice(buffer, uint32(size))
+		buffer := make([]byte, size)
+		//buffer := s.pool.Get().([]byte)
+		//buffer = shared.GrowSlice(buffer, uint32(size))
 		buffer[4] = shared.OP_FORWARD
 		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
 		copy(buffer[5:21], messageId[:16])
@@ -102,9 +103,9 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {
 				log.Printf("Write error to peer %d: %v", s.leader, err)
 			}
-			fmt.Printf("\nForwarded out: %d\n", size)
+			//fmt.Printf("\nForwarded out: %d\n", size)
 			atomic.AddUint32(&s.poolSize, 1)
-			s.pool.Put(buffer)
+			//s.pool.Put(buffer)
 		}
 	}
 }
