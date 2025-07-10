@@ -152,6 +152,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 				}
 			}
 		} else if op == shared.OP_MESSAGE {
+			fmt.Printf("Got normal message\n")
 			msgCount := binary.LittleEndian.Uint32(readBuffer[1:5])
 
 			offset := uint32(5)
@@ -178,6 +179,8 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 					}
 				}(msg)
 			}
+		} else {
+			panic(fmt.Sprintf("Unknown op: %v", op))
 		}
 	}
 }
