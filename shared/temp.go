@@ -27,10 +27,10 @@ type PendingRead struct {
 
 func GrowSlice(buffer []byte, required uint32) []byte {
 	if cap(buffer) < int(required) {
-		next := make([]byte, required)
+		next := make([]byte, required-uint32(cap(buffer)))
 		//copy(next, buffer)
-		buffer = next
-		fmt.Println("Needed to re allocate anyways?")
+		fmt.Println("Had to grow anyways?!")
+		buffer = append(buffer, next...)
 	}
 	if len(buffer) < int(required) {
 		return buffer[:required]
