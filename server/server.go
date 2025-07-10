@@ -344,9 +344,9 @@ func (s *Server) processReady(rd raft.Ready) {
 	s.processEntries(rd.Entries)
 	s.processMessages(rd.Messages)
 	s.processCommittedEntries(rd.CommittedEntries)
-	if !raft.IsEmptyHardState(rd.HardState) && len(rd.ReadStates) > 0 {
-		fmt.Printf("Writing to hardstate with reads: commit=%d, vote=%d, term=%d!\n", rd.HardState.Commit, rd.HardState.Vote, rd.HardState.Term)
-	}
+	//if !raft.IsEmptyHardState(rd.HardState) && len(rd.ReadStates) > 0 {
+	//	fmt.Printf("Writing to hardstate with reads: commit=%d, vote=%d, term=%d!\n", rd.HardState.Commit, rd.HardState.Vote, rd.HardState.Term)
+	//}
 	s.processReadStates(rd.ReadStates)
 	s.node.Advance()
 }
