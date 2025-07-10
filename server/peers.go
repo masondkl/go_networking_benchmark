@@ -156,7 +156,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 
 			if msg.Type != raftpb.MsgHeartbeat && msg.Type != raftpb.MsgHeartbeatResp {
 				if msg.Index < lastStepIndex {
-					fmt.Printf("current index is smaller than last step: %d - %d\n", msg.Index, lastStepIndex)
+					fmt.Printf("current index is smaller than last step: %d - %d - %v\n", msg.Index, lastStepIndex, msg.Type)
 				}
 				lastStepIndex = msg.Index
 			}
