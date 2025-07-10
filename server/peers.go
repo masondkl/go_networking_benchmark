@@ -47,7 +47,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	for i := range msgs {
 		msg := msgs[i]
 		size := msg.Size() + 5
-		buffer := s.pool.Get()
+		buffer := s.pool.Get().([]byte)
 		buffer = shared.GrowSlice(buffer, uint32(size))
 		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
 		buffer[4] = shared.OP_MESSAGE
