@@ -78,7 +78,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		copy(dataCopy[1:17], messageId[:16])
 		binary.LittleEndian.PutUint32(dataCopy[17:21], ownerId)
 		copy(dataCopy[21:size], data)
-		s.proposeChannel <- func() {
+		client.ProposeChannel <- func() {
 			if err := s.node.Propose(context.TODO(), dataCopy[:size]); err != nil {
 				log.Printf("Propose error: %v", err)
 			}
@@ -94,8 +94,8 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		binary.LittleEndian.PutUint32(buffer[21:25], ownerId)
 		copy(buffer[25:size], data)
 
-		//connIdx := atomic.AddUint32(&s.peerConnRoundRobins[s.leader-1], 1) % uint32(s.flags.NumPeerConnections)
-		peer := s.peerConnections[s.leader-1][0]
+		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[s.leader-1], 1) % uint32(s.flags.NumPeerConnections)
+		peer := s.peerConnections[s.leader-1][connIdx]
 
 		peer.Channel <- func() {
 			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {

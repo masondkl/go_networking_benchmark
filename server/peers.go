@@ -56,8 +56,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		}
 
 		peerIdx := msg.To - 1
-		//connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-		peer := s.peerConnections[peerIdx][0]
+		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+		peer := s.peerConnections[peerIdx][connIdx]
 
 		peer.Channel <- func() {
 			//fmt.Printf("Sending message to peer %d with size=%d\n", peerIdx+1, size)
