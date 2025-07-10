@@ -100,6 +100,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		}
 
 		buffer[0] = shared.OP_MESSAGE
+		fmt.Printf("Writing over: %d\n", offset-4)
 		binary.LittleEndian.PutUint32(buffer[1:5], uint32(offset-4))
 		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(group)))
 
