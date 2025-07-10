@@ -73,6 +73,14 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 func (s *Server) handlePeerConnection(conn net.Conn) {
 	defer conn.Close()
 
+	stepChannel := make(chan func(), 1000000)
+
+	go func() {
+		for step := range stepChannel {
+			step()
+		}
+	}()
+
 	bytes := make([]byte, 4)
 	if err := shared.Read(conn, bytes); err != nil {
 		return
@@ -110,7 +118,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 				panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 			}
 
-			s.stepChannel <- func() {
+			stepChannel <- func() {
 				if msg.Type == raftpb.MsgHeartbeat {
 					s.leader = uint32(msg.From)
 				} else if msg.Type == raftpb.MsgHeartbeatResp {
@@ -121,6 +129,18 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 					log.Printf("Step error: %v", err)
 				}
 			}
+
+			//s.stepChannel <- func() {
+			//	if msg.Type == raftpb.MsgHeartbeat {
+			//		s.leader = uint32(msg.From)
+			//	} else if msg.Type == raftpb.MsgHeartbeatResp {
+			//		s.leader = uint32(s.config.ID)
+			//	}
+			//
+			//	if err := s.node.Step(context.TODO(), msg); err != nil {
+			//		log.Printf("Step error: %v", err)
+			//	}
+			//}
 		} else {
 			panic(fmt.Sprintf("Unknown op: %v", op))
 		}
