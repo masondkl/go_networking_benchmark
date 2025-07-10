@@ -327,6 +327,7 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 			s.dbChannel <- readReq.Key
 		} else {
 			s.waiters[rs.Index] = append(s.waiters[rs.Index], readReq.Key)
+			s.Trigger(s.applyIndex)
 		}
 	}
 }
