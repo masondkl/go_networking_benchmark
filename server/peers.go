@@ -90,7 +90,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 		peer := s.peerConnections[peerIdx][connIdx]
 
-		func(to uint64, group []raftpb.Message, peer *shared.PeerConnection) {
+		func(to uint64, group []raftpb.Message, peer shared.PeerConnection) {
 			peer.Channel <- func() {
 				buffer := s.pool.Get().([]byte)
 				atomic.AddUint32(&s.poolSize, ^uint32(0))
