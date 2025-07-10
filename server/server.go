@@ -73,14 +73,11 @@ type Server struct {
 	readIndexChannel    chan func()
 }
 
-var created = uint32(0)
-
 var poolSize uint32
 
 func (s *Server) initPool() {
 	s.pool = sync.Pool{
 		New: func() interface{} {
-			atomic.AddUint32(&created, 1)
 			return make([]byte, s.flags.PoolDataSize)
 		},
 	}
@@ -90,7 +87,6 @@ func (s *Server) initPool() {
 		stored[i] = s.pool.Get().([]byte)
 	}
 	for i := range stored {
-		atomic.AddUint32(&s.poolSize, uint32(1))
 		s.pool.Put(stored[i])
 	}
 
@@ -99,7 +95,7 @@ func (s *Server) initPool() {
 	go func() {
 		for {
 			time.Sleep(250 * time.Millisecond)
-			fmt.Printf("Created pool buffers: %d\n", atomic.LoadUint32(&s.poolSize))
+			fmt.Printf("Current buffers: %d\n", atomic.LoadUint32(&s.poolSize))
 		}
 	}()
 }
