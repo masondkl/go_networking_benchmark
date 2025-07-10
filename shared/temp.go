@@ -12,8 +12,10 @@ const OP_READ_MEMORY = 3
 const OP_LEADER = 4
 
 type Client struct {
-	Connection net.Conn
-	Channel    chan func()
+	Connection     net.Conn
+	Channel        chan func()
+	ProposeChannel chan func()
+	ReadChannel    chan func()
 }
 
 type PendingRead struct {

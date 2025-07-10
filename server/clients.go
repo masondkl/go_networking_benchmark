@@ -21,12 +21,20 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 	leaderBuffer := make([]byte, 1)
 
 	client := shared.Client{
-		Connection: conn,
-		Channel:    make(chan func(), 1000000),
+		Connection:     conn,
+		Channel:        make(chan func(), 1000000),
+		ProposeChannel: make(chan func(), 100000),
+		ReadChannel:    make(chan func(), 100000),
 	}
 
 	go func() {
 		for task := range client.Channel {
+			task()
+		}
+	}()
+
+	go func() {
+		for task := range client.ProposeChannel {
 			task()
 		}
 	}()
@@ -125,14 +133,14 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		ctx := make([]byte, 16)
 		copy(ctx[:], messageId[:16])
 		s.senders.Store(messageId, shared.PendingRead{Client: client, Key: dataCopy})
-		s.proposeChannel <- func() {
+		client.ProposeChannel <- func() {
 			if err := s.node.ReadIndex(context.TODO(), ctx); err != nil {
 				log.Printf("ReadIndex error: %v", err)
 			}
 		}
 	} else {
 		s.senders.Store(messageId, client)
-		s.proposeChannel <- func() {
+		client.ProposeChannel <- func() {
 			if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
 				log.Printf("Propose error: %v", err)
 			}
