@@ -85,9 +85,9 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		}
 	} else {
 		size += 4
-		buffer := make([]byte, size)
-		//buffer := s.pool.Get().([]byte)
-		//buffer = shared.GrowSlice(buffer, uint32(size))
+		//buffer := make([]byte, size)
+		buffer := s.pool.Get().([]byte)
+		buffer = shared.GrowSlice(buffer, uint32(size))
 		buffer[4] = shared.OP_FORWARD
 		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
 		copy(buffer[5:21], messageId[:16])

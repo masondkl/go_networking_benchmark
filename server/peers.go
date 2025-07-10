@@ -62,7 +62,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 
 		peer.Channel <- func() {
 			//fmt.Printf("Sending message to peer %d with size=%d\n", peerIdx+1, size)
-			if err := shared.Write(*peer.Connection, buffer); err != nil {
+			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {
 				log.Printf("Write error to peer %d: %v", peerIdx+1, err)
 			}
 			atomic.AddUint32(&s.poolSize, 1)
