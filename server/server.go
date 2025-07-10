@@ -348,6 +348,9 @@ func (s *Server) processReady(rd raft.Ready) {
 	s.processEntries(rd.Entries)
 	s.processMessages(rd.Messages)
 	s.processCommittedEntries(rd.CommittedEntries)
+	if !raft.IsEmptyHardState(rd.HardState) && len(rd.ReadStates) > 0 {
+		fmt.Printf("We're writing to hard state when we have reads!\n")
+	}
 	s.processReadStates(rd.ReadStates)
 	s.node.Advance()
 }
