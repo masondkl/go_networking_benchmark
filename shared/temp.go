@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"fmt"
 	"net"
 	"sync"
 )
@@ -29,6 +30,7 @@ func GrowSlice(buffer []byte, required uint32) []byte {
 		next := make([]byte, required)
 		//copy(next, buffer)
 		buffer = next
+		fmt.Println("Needed to re allocate anyways?")
 	}
 	if len(buffer) < int(required) {
 		return buffer[:required]
