@@ -274,7 +274,7 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 }
 
 func (s *Server) Trigger(appliedIndex uint64) {
-	fmt.Printf("Applied index: %d\n", appliedIndex)
+	//fmt.Printf("Applied index: %d\n", appliedIndex)
 	for index, keys := range s.waiters {
 		if index <= appliedIndex {
 			for _, key := range keys {
@@ -296,7 +296,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 			fmt.Printf("Index is less than apply index?!: entr=%d - apply=%d", entry.Index, s.applyIndex)
 		}
 		s.applyIndex = entry.Index
-		fmt.Printf("Applied index: %d\n", entry.Index)
+		//fmt.Printf("Applied index: %d\n", entry.Index)
 		s.Trigger(s.applyIndex)
 		if s.flags.FastPathWrites {
 			if ownerIndex == uint32(s.config.ID) && (op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY) {
