@@ -96,6 +96,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				return
 			}
 			binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
+			fmt.Printf("Putting size at: %d:%d - %d\n", offset, offset+4, uint32(size))
 			offset += size + 4
 		}
 
