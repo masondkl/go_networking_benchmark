@@ -274,6 +274,7 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 }
 
 func (s *Server) Trigger(appliedIndex uint64) {
+	fmt.Printf("Applied index: %d\n", appliedIndex)
 	for index, keys := range s.waiters {
 		if index <= appliedIndex {
 			for _, key := range keys {
