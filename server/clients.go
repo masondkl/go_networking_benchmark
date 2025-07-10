@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"networking_benchmark/shared"
+	"sync/atomic"
 )
 
 type raftRequest struct {
@@ -150,6 +151,7 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		request := senderAny.(shared.PendingRead)
 
 		buffer := s.pool.Get().([]byte)
+		atomic.AddUint32(&s.poolSize, ^uint32(0))
 		length := uint32(9 + len(data))
 		buffer = shared.GrowSlice(buffer, length)
 		binary.LittleEndian.PutUint32(buffer[:4], length-4)
@@ -161,6 +163,7 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 			if err := shared.Write(request.Client.Connection, buffer[:length]); err != nil {
 				log.Printf("Write error: %v", err)
 			}
+			atomic.AddUint32(&s.poolSize, uint32(1))
 			s.pool.Put(buffer)
 		}
 	} else if op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY {
@@ -172,12 +175,14 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		request := senderAny.(shared.Client)
 		request.Channel <- func() {
 			buffer := s.pool.Get().([]byte)
+			atomic.AddUint32(&s.poolSize, ^uint32(0))
 			binary.LittleEndian.PutUint32(buffer[:4], 1)
 			buffer[4] = op
 			length := uint32(5)
 			if err := shared.Write(request.Connection, buffer[:length]); err != nil {
 				log.Printf("Write error: %v", err)
 			}
+			atomic.AddUint32(&s.poolSize, uint32(1))
 			s.pool.Put(buffer)
 		}
 	}

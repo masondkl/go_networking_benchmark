@@ -75,6 +75,8 @@ type Server struct {
 
 var created = uint32(0)
 
+var poolSize uint32
+
 func (s *Server) initPool() {
 	s.pool = sync.Pool{
 		New: func() interface{} {
@@ -88,17 +90,18 @@ func (s *Server) initPool() {
 		stored[i] = s.pool.Get().([]byte)
 	}
 	for i := range stored {
+		atomic.AddUint32(&s.poolSize, uint32(1))
 		s.pool.Put(stored[i])
 	}
 
-	//atomic.AddUint32(&s.poolSize, uint32(*PoolWarmupSize))
+	atomic.AddUint32(&s.poolSize, uint32(s.flags.PoolWarmupSize))
 
-	//go func() {
-	//	for {
-	//		time.Sleep(500 * time.Millisecond)
-	//		fmt.Printf("Created pool buffers: %d\n", atomic.LoadUint32(&created))
-	//	}
-	//}()
+	go func() {
+		for {
+			time.Sleep(250 * time.Millisecond)
+			fmt.Printf("Created pool buffers: %d\n", atomic.LoadUint32(&s.poolSize))
+		}
+	}()
 }
 
 func (s *Server) setupRaft() {
@@ -127,6 +130,7 @@ func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
 		if !(s.flags.Memory) {
 			buffer := s.pool.Get().([]byte)
+			atomic.AddUint32(&s.poolSize, ^uint32(0))
 			buffer = shared.GrowSlice(buffer, uint32(hs.Size()))
 			size, err := hs.MarshalTo(buffer)
 			if err != nil {
@@ -160,6 +164,7 @@ func (s *Server) processHardState(hs raftpb.HardState) {
 				}
 			}
 			s.hardstateMutex.Unlock()
+			atomic.AddUint32(&s.poolSize, uint32(1))
 			s.pool.Put(buffer)
 		}
 
@@ -197,6 +202,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 				walEntries := grouped[walIndex]
 				slot := s.walSlots[walIndex]
 				buffer := s.pool.Get().([]byte)
+				atomic.AddUint32(&s.poolSize, ^uint32(0))
 				size := 0
 				for entryIndex := range walEntries {
 					size += walEntries[entryIndex].Size()
@@ -223,6 +229,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 							break
 						}
 					}
+					atomic.AddUint32(&s.poolSize, uint32(1))
 					s.pool.Put(buffer)
 					if s.flags.Manual == "fsync" {
 						err := syscall.Fsync(int(slot.file.Fd()))

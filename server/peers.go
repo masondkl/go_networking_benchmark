@@ -91,6 +91,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		peer := s.peerConnections[peerIdx][connIdx]
 		peer.Channel <- func() {
 			buffer := s.pool.Get().([]byte)
+			atomic.AddUint32(&s.poolSize, ^uint32(0))
 			offset := 8
 			for i := range group {
 				msg := group[i]
@@ -110,6 +111,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
 				log.Printf("Write error to peer %d: %v", to, err)
 			}
+			atomic.AddUint32(&s.poolSize, uint32(1))
 			s.pool.Put(buffer)
 		}
 		//peer.WriteLock.Lock()
