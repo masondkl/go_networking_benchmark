@@ -133,7 +133,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 		totalSize := binary.LittleEndian.Uint32(readBuffer[:4])
-		fmt.Printf("Read size: %d\n", totalSize)
+		fmt.Printf("Read size from %d: %d\n", peerIndex, totalSize)
 		//fmt.Printf("Total size: %d\n", totalSize)
 		readBuffer = shared.GrowSlice(readBuffer, totalSize)
 		if err := shared.Read(conn, readBuffer[:totalSize]); err != nil {
