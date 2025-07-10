@@ -94,7 +94,7 @@ func (s *Server) initPool() {
 		s.pool.Put(stored[i])
 	}
 
-	atomic.AddUint32(&s.poolSize, uint32(s.flags.PoolWarmupSize))
+	//atomic.AddUint32(&s.poolSize, uint32(s.flags.PoolWarmupSize))
 
 	go func() {
 		for {
@@ -410,6 +410,7 @@ func NewServer(serverFlags *ServerFlags) *Server {
 		proposeChannel:   make(chan func(), 1000000),
 		stepChannel:      make(chan func(), 1000000),
 		readIndexChannel: make(chan func(), 1000000),
+		poolSize:         uint32(serverFlags.PoolWarmupSize),
 	}
 
 	go func() {
