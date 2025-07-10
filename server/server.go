@@ -70,6 +70,7 @@ type Server struct {
 	waiters             map[uint64][]chan struct{}
 	stepChannel         chan func()
 	proposeChannel      chan func()
+	readIndexChannel    chan func()
 }
 
 var created = uint32(0)
@@ -320,10 +321,10 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 		} else {
 			ch := make(chan struct{})
 			s.waiters[rs.Index] = append(s.waiters[rs.Index], ch)
-			go func(state raft.ReadState, read shared.PendingRead) {
+			s.readIndexChannel <- func() {
 				<-ch
-				s.dbChannel <- read.Key
-			}(rs, readReq)
+				s.dbChannel <- readReq.Key
+			}
 		}
 	}
 }
@@ -392,15 +393,16 @@ func wipeWorkingDirectory() error {
 
 func NewServer(serverFlags *ServerFlags) *Server {
 	s := &Server{
-		peerAddresses:  strings.Split(serverFlags.PeerAddressesString, ","),
-		shutdownChan:   make(chan struct{}),
-		walSlots:       make([]WalSlot, serverFlags.WalFileCount),
-		hardstateMutex: &sync.Mutex{},
-		dbChannel:      make(chan []byte, 10000000),
-		flags:          serverFlags,
-		waiters:        make(map[uint64][]chan struct{}),
-		proposeChannel: make(chan func(), 1000000),
-		stepChannel:    make(chan func(), 1000000),
+		peerAddresses:    strings.Split(serverFlags.PeerAddressesString, ","),
+		shutdownChan:     make(chan struct{}),
+		walSlots:         make([]WalSlot, serverFlags.WalFileCount),
+		hardstateMutex:   &sync.Mutex{},
+		dbChannel:        make(chan []byte, 10000000),
+		flags:            serverFlags,
+		waiters:          make(map[uint64][]chan struct{}),
+		proposeChannel:   make(chan func(), 1000000),
+		stepChannel:      make(chan func(), 1000000),
+		readIndexChannel: make(chan func(), 1000000),
 	}
 
 	go func() {
@@ -411,6 +413,12 @@ func NewServer(serverFlags *ServerFlags) *Server {
 
 	go func() {
 		for task := range s.stepChannel {
+			task()
+		}
+	}()
+
+	go func() {
+		for task := range s.readIndexChannel {
 			task()
 		}
 	}()
