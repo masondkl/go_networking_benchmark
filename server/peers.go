@@ -169,7 +169,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 						} else if msg.Type == raftpb.MsgHeartbeatResp {
 							s.leader = uint32(s.config.ID)
 						}
-						fmt.Printf("Stepping with message: %v\n", msgCopy.Type)
+						//fmt.Printf("Stepping with message: %v\n", msgCopy.Type)
 
 						if err := s.node.Step(context.TODO(), msgCopy); err != nil {
 							log.Printf("Step error: %v", err)
