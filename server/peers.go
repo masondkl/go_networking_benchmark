@@ -80,13 +80,10 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	}
 
 	for to, group := range grouped {
-		peerIdx := to - 1
-		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-		peer := s.peerConnections[peerIdx][connIdx]
 
 		buffer := s.pool.Get().([]byte)
 		atomic.AddUint32(&s.poolSize, ^uint32(0))
-		offset := 8
+		offset := 9
 
 		for i := range group {
 			msg := group[i]
@@ -101,8 +98,13 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			offset += size + 4
 		}
 
-		binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
-		binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
+		buffer[0] = shared.OP_MESSAGE
+		binary.LittleEndian.PutUint32(buffer[1:5], uint32(offset-4))
+		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(group)))
+
+		peerIdx := to - 1
+		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+		peer := s.peerConnections[peerIdx][connIdx]
 
 		func(to uint64, group []raftpb.Message, peer shared.PeerConnection) {
 			peer.Channel <- func() {
@@ -115,11 +117,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		}(to, group, peer)
 	}
 }
-
-type PeerTracker struct {
-}
-
-var lastStepIndex uint64
 
 func (s *Server) handlePeerConnection(conn net.Conn) {
 	defer conn.Close()
@@ -143,31 +140,35 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 
-		msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
-
-		offset := uint32(4)
-		for i := uint32(0); i < msgCount; i++ {
-			size := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
-			var msg raftpb.Message
-			if err := msg.Unmarshal(readBuffer[offset+4 : offset+4+size]); err != nil {
-				panic(fmt.Sprintf("Error unmarshaling message: %v", err))
-			}
-			offset += size + 4
-
-			//if msg.Type != raftpb.MsgHeartbeat && msg.Type != raftpb.MsgHeartbeatResp {
-			//	if msg.Index < lastStepIndex {
-			//		fmt.Printf("current index is smaller than last step: %d - %d - %v\n", msg.Index, lastStepIndex, msg.Type)
-			//	}
-			//	lastStepIndex = msg.Index
-			//}
-
-			func(msgCopy raftpb.Message) {
-				s.stepChannel <- func() {
-					if err := s.node.Step(context.TODO(), msgCopy); err != nil {
-						log.Printf("Step error: %v", err)
-					}
+		op := readBuffer[0]
+		if op == shared.OP_FORWARD {
+			dataCopy := make([]byte, totalSize)
+			copy(dataCopy, readBuffer[:totalSize])
+			s.proposeChannel <- func() {
+				if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
+					log.Printf("Propose error: %v", err)
 				}
-			}(msg)
+			}
+		} else if op == shared.OP_MESSAGE {
+			msgCount := binary.LittleEndian.Uint32(readBuffer[:4])
+
+			offset := uint32(4)
+			for i := uint32(0); i < msgCount; i++ {
+				size := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
+				var msg raftpb.Message
+				if err := msg.Unmarshal(readBuffer[offset+4 : offset+4+size]); err != nil {
+					panic(fmt.Sprintf("Error unmarshaling message: %v", err))
+				}
+				offset += size + 4
+
+				func(msgCopy raftpb.Message) {
+					s.stepChannel <- func() {
+						if err := s.node.Step(context.TODO(), msgCopy); err != nil {
+							log.Printf("Step error: %v", err)
+						}
+					}
+				}(msg)
+			}
 		}
 	}
 }

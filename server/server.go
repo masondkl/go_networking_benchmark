@@ -67,6 +67,7 @@ type Server struct {
 	poolSize            uint32
 	flags               *ServerFlags
 	applyIndex          uint64
+	leader              uint32
 	waiters             map[uint64][][]byte
 	stepChannel         chan func()
 	proposeChannel      chan func()
@@ -286,25 +287,15 @@ func (s *Server) Trigger(appliedIndex uint64) {
 }
 
 func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
-	//fmt.Printf("Processing commited entry: %v\n", entry)
 	if len(entry.Data) >= 8 {
-		messageId := uuid.UUID(entry.Data[:16])
-		ownerIndex := binary.LittleEndian.Uint32(entry.Data[16:20])
-		op := entry.Data[20]
+		messageId := uuid.UUID(entry.Data[1:17])
+		ownerIndex := binary.LittleEndian.Uint32(entry.Data[17:21])
+		op := entry.Data[21]
 		s.dbChannel <- entry.Data
-		if entry.Index < s.applyIndex {
-			fmt.Printf("Index is less than apply index?!: entr=%d - apply=%d", entry.Index, s.applyIndex)
-		}
-		s.applyIndex = entry.Index
-		//fmt.Printf("Applied index: %d\n", entry.Index)
-		s.Trigger(s.applyIndex)
-		if s.flags.FastPathWrites {
-			if ownerIndex == uint32(s.config.ID) && (op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY) {
-				go s.respondToClient(op, messageId, nil)
-			}
+		if s.flags.FastPathWrites && (op == shared.OP_WRITE_MEMORY || op == shared.OP_READ_MEMORY) && ownerIndex == uint32(s.config.ID) {
+			s.respondToClient(op, messageId, nil)
 		}
 	}
-	//fmt.Printf("Entry index: %d\n", entry.Index)
 }
 
 var reads uint32
@@ -352,7 +343,7 @@ func (s *Server) processReady(rd raft.Ready) {
 	//if !raft.IsEmptyHardState(rd.HardState) && len(rd.ReadStates) > 0 {
 	//	fmt.Printf("Writing to hardstate with reads: commit=%d, vote=%d, term=%d!\n", rd.HardState.Commit, rd.HardState.Vote, rd.HardState.Term)
 	//}
-	s.processReadStates(rd.ReadStates)
+	//s.processReadStates(rd.ReadStates)
 	s.node.Advance()
 }
 

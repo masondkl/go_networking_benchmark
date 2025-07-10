@@ -10,12 +10,13 @@ const OP_WRITE_MEMORY = 1
 const OP_READ = 2
 const OP_READ_MEMORY = 3
 const OP_LEADER = 4
+const OP_FORWARD = 5
+const OP_MESSAGE = 6
 
 type Client struct {
 	Connection     net.Conn
 	Channel        chan func()
 	ProposeChannel chan func()
-	ReadChannel    chan func()
 }
 
 type PendingRead struct {

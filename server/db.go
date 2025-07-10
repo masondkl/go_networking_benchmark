@@ -96,28 +96,28 @@ func (s *Server) DbHandler() {
 		case data := <-s.dbChannel:
 			//fmt.Printf("Handling data\n")
 			//messageIndex := binary.LittleEndian.Uint32(data[1:5])
-			messageId := uuid.UUID(data[:16])
-			ownerIndex := binary.LittleEndian.Uint32(data[16:20])
-			op := data[20]
-			keySize := binary.LittleEndian.Uint32(data[21:25])
-			key := data[25 : keySize+25]
+			messageId := uuid.UUID(data[1:17])
+			ownerIndex := binary.LittleEndian.Uint32(data[17:21])
+			op := data[21]
+			keySize := binary.LittleEndian.Uint32(data[22:26])
+			key := data[26 : keySize+26]
 			if op == shared.OP_WRITE_MEMORY {
-				valueSize := binary.LittleEndian.Uint32(data[keySize+25:])
-				value := data[keySize+29 : keySize+29+valueSize]
+				valueSize := binary.LittleEndian.Uint32(data[keySize+26:])
+				value := data[keySize+30 : keySize+30+valueSize]
 				memoryDb[string(key)] = value
 				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
-					go s.respondToClient(shared.OP_WRITE_MEMORY, messageId, nil)
+					s.respondToClient(shared.OP_WRITE_MEMORY, messageId, nil)
 				}
 			} else if op == shared.OP_WRITE {
-				valueSize := binary.LittleEndian.Uint32(data[keySize+25:])
-				value := data[keySize+29 : keySize+29+valueSize]
+				valueSize := binary.LittleEndian.Uint32(data[keySize+26:])
+				value := data[keySize+30 : keySize+30+valueSize]
 				memoryDb[string(key)] = value
 				err := Put(key, value)
 				if err != nil {
 					panic(err)
 				}
 				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
-					go s.respondToClient(shared.OP_WRITE, messageId, nil)
+					s.respondToClient(shared.OP_WRITE, messageId, nil)
 				}
 			} else if ownerIndex == uint32(s.config.ID) {
 				if op == shared.OP_READ_MEMORY {
@@ -125,13 +125,13 @@ func (s *Server) DbHandler() {
 					if value == nil {
 						fmt.Println("No key found")
 					}
-					go s.respondToClient(shared.OP_READ_MEMORY, messageId, value)
+					s.respondToClient(shared.OP_READ_MEMORY, messageId, value)
 				} else if op == shared.OP_READ {
 					value, err := Get(key)
 					if err != nil {
 						panic(err)
 					}
-					go s.respondToClient(shared.OP_READ, messageId, value)
+					s.respondToClient(shared.OP_READ, messageId, value)
 				}
 			}
 		}
