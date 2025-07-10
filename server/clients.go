@@ -87,13 +87,15 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 			}
 		}
 	} else {
+		size += 4
 		fmt.Printf("We are forwarding!\n")
 		buffer := s.pool.Get().([]byte)
 		buffer = shared.GrowSlice(buffer, uint32(size))
-		buffer[0] = shared.OP_FORWARD
-		copy(buffer[1:17], messageId[:16])
-		binary.LittleEndian.PutUint32(buffer[17:21], ownerId)
-		copy(buffer[21:size], data)
+		buffer[4] = shared.OP_FORWARD
+		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
+		copy(buffer[5:21], messageId[:16])
+		binary.LittleEndian.PutUint32(buffer[21:25], ownerId)
+		copy(buffer[25:size], data)
 
 		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[s.leader-1], 1) % uint32(s.flags.NumPeerConnections)
 		peer := s.peerConnections[s.leader-1][connIdx]
