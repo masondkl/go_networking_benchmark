@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"fmt"
 	"net"
 	"sync"
 )
@@ -29,7 +28,6 @@ func GrowSlice(buffer []byte, required uint32) []byte {
 	if cap(buffer) < int(required) {
 		next := make([]byte, required-uint32(cap(buffer)))
 		//copy(next, buffer)
-		fmt.Println("Had to grow anyways?!")
 		buffer = append(buffer, next...)
 	}
 	if len(buffer) < int(required) {
