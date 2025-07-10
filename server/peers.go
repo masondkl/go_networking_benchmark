@@ -154,12 +154,12 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			}
 			offset += size + 4
 
-			if msg.Type != raftpb.MsgHeartbeat && msg.Type != raftpb.MsgHeartbeatResp {
-				if msg.Index < lastStepIndex {
-					fmt.Printf("current index is smaller than last step: %d - %d - %v\n", msg.Index, lastStepIndex, msg.Type)
-				}
-				lastStepIndex = msg.Index
-			}
+			//if msg.Type != raftpb.MsgHeartbeat && msg.Type != raftpb.MsgHeartbeatResp {
+			//	if msg.Index < lastStepIndex {
+			//		fmt.Printf("current index is smaller than last step: %d - %d - %v\n", msg.Index, lastStepIndex, msg.Type)
+			//	}
+			//	lastStepIndex = msg.Index
+			//}
 
 			func(msgCopy raftpb.Message) {
 				s.stepChannel <- func() {

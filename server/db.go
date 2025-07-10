@@ -94,6 +94,7 @@ func (s *Server) DbHandler() {
 	for {
 		select {
 		case data := <-s.dbChannel:
+			fmt.Printf("Handling data\n")
 			//messageIndex := binary.LittleEndian.Uint32(data[1:5])
 			messageId := uuid.UUID(data[:16])
 			ownerIndex := binary.LittleEndian.Uint32(data[16:20])
