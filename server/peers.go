@@ -140,6 +140,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 	peerIndex := binary.LittleEndian.Uint32(bytes)
 	log.Printf("Got connection from peer %d", peerIndex)
 
+	lastStepIndex := uint64(0)
 	readBuffer := make([]byte, 10000000)
 	for {
 		if err := shared.Read(conn, readBuffer[:4]); err != nil {
@@ -175,6 +176,10 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 				panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 			}
 			offset += size + 4
+			if msg.Index < lastStepIndex {
+				fmt.Printf("Index is smaller than last step! %d-%d\n", msg.Index, lastStepIndex)
+			}
+			lastStepIndex = msg.Index
 			//go func() {
 			//	if err := s.node.Step(context.TODO(), msg); err != nil {
 			//		log.Printf("Step error: %v", err)
