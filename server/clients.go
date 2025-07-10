@@ -79,7 +79,6 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		copy(dataCopy[1:17], messageId[:16])
 		binary.LittleEndian.PutUint32(dataCopy[17:21], ownerId)
 		copy(dataCopy[21:size], data)
-		fmt.Printf("Proposing since we are the leader\n")
 		s.proposeChannel <- func() {
 			if err := s.node.Propose(context.TODO(), dataCopy[:size]); err != nil {
 				log.Printf("Propose error: %v", err)
