@@ -80,7 +80,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	}
 
 	fmt.Printf("processing %d messages\n", len(msgs))
-
+	//
 	for to, group := range grouped {
 		buffer := s.pool.Get().([]byte)
 		atomic.AddUint32(&s.poolSize, ^uint32(0))
@@ -107,7 +107,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 		peer := s.peerConnections[peerIdx][connIdx]
 		peer.Channel <- func() {
-			fmt.Printf("Writing out message to %d: size=%d\n", to, offset)
+			//fmt.Printf("Writing out message to %d: size=%d\n", to, offset)
 			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
 				log.Printf("Write error to peer %d: %v", to, err)
 			}
@@ -133,7 +133,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			return
 		}
 		totalSize := binary.LittleEndian.Uint32(readBuffer[:4])
-		fmt.Printf("Read size: %d\n", totalSize)
+		//fmt.Printf("Read size: %d\n", totalSize)
 		//fmt.Printf("Total size: %d\n", totalSize)
 		readBuffer = shared.GrowSlice(readBuffer, totalSize)
 		if err := shared.Read(conn, readBuffer[:totalSize]); err != nil {
@@ -141,7 +141,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		}
 
 		op := readBuffer[0]
-		fmt.Printf("Got op: %d\n", op)
+		//fmt.Printf("Got op: %d\n", op)
 		if op == shared.OP_FORWARD {
 			dataCopy := make([]byte, totalSize)
 			copy(dataCopy, readBuffer[:totalSize])
@@ -164,6 +164,8 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 
 				func(msgCopy raftpb.Message) {
 					s.stepChannel <- func() {
+						fmt.Printf("Stepping with message: %v\n", msgCopy.Type)
+
 						if err := s.node.Step(context.TODO(), msgCopy); err != nil {
 							log.Printf("Step error: %v", err)
 						}
