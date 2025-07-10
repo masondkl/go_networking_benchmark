@@ -84,28 +84,28 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 		peer := s.peerConnections[peerIdx][connIdx]
 
+		buffer := s.pool.Get().([]byte)
+		atomic.AddUint32(&s.poolSize, ^uint32(0))
+		offset := 8
+
+		for i := range group {
+			msg := group[i]
+			buffer = shared.GrowSlice(buffer, uint32(offset+4+msg.Size()))
+			size, err := msg.MarshalTo(buffer[offset+4:])
+			if err != nil {
+				log.Printf("Marshal error to peer %d: %v", to, err)
+				s.pool.Put(buffer)
+				return
+			}
+			binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
+			offset += size + 4
+		}
+
+		binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+		binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
+
 		func(to uint64, group []raftpb.Message, peer shared.PeerConnection) {
 			peer.Channel <- func() {
-				buffer := s.pool.Get().([]byte)
-				atomic.AddUint32(&s.poolSize, ^uint32(0))
-				offset := 8
-
-				for i := range group {
-					msg := group[i]
-					buffer = shared.GrowSlice(buffer, uint32(offset+4+msg.Size()))
-					size, err := msg.MarshalTo(buffer[offset+4:])
-					if err != nil {
-						log.Printf("Marshal error to peer %d: %v", to, err)
-						s.pool.Put(buffer)
-						return
-					}
-					binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(size))
-					offset += size + 4
-				}
-
-				binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
-				binary.LittleEndian.PutUint32(buffer[4:8], uint32(len(group)))
-
 				if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
 					log.Printf("Write error to peer %d: %v", to, err)
 				}

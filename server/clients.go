@@ -133,7 +133,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		ctx := make([]byte, 16)
 		copy(ctx[:], messageId[:16])
 		s.senders.Store(messageId, shared.PendingRead{Client: client, Key: dataCopy})
-		s.proposeChannel <- func() {
+		s.stepChannel <- func() {
 			if err := s.node.ReadIndex(context.TODO(), ctx); err != nil {
 				log.Printf("ReadIndex error: %v", err)
 			}
