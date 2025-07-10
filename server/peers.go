@@ -99,8 +99,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 			offset += size + 4
 		}
 
-		buffer[0] = shared.OP_MESSAGE
-		binary.LittleEndian.PutUint32(buffer[1:5], uint32(offset-4))
+		binary.LittleEndian.PutUint32(buffer[0:4], uint32(offset-4))
+		buffer[4] = shared.OP_MESSAGE
 		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(group)))
 
 		peerIdx := to - 1
