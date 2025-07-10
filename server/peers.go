@@ -165,11 +165,9 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 				func(msgCopy raftpb.Message) {
 					s.stepChannel <- func() {
 						if msg.Type == raftpb.MsgHeartbeat {
-							fmt.Printf("We arent leader\n")
 							s.leader = uint32(msg.From)
 						} else if msg.Type == raftpb.MsgHeartbeatResp {
 							s.leader = uint32(s.config.ID)
-							fmt.Printf("We are leader\n")
 						}
 						fmt.Printf("Stepping with message: %v\n", msgCopy.Type)
 
