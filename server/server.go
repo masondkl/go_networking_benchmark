@@ -303,6 +303,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 			}
 		}
 	}
+	fmt.Printf("Entry index: %d\n", entry.Index)
 }
 
 func (s *Server) processReadStates(readStates []raft.ReadState) {
