@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"github.com/google/uuid"
 	"log"
 	"net"
@@ -72,12 +73,13 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 
 	size := len(data) + 21
 	s.senders.Store(messageId, client)
-	if s.leader == ownerId {
+	if s.leader-1 == ownerId {
 		dataCopy := make([]byte, size)
 		dataCopy[0] = shared.OP_MESSAGE
 		copy(dataCopy[1:17], messageId[:16])
 		binary.LittleEndian.PutUint32(dataCopy[17:21], ownerId)
 		copy(dataCopy[21:size], data)
+		fmt.Printf("Proposing since we are the leader\n")
 		s.proposeChannel <- func() {
 			if err := s.node.Propose(context.TODO(), dataCopy[:size]); err != nil {
 				log.Printf("Propose error: %v", err)
