@@ -140,7 +140,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 		}
 	} else {
 		s.senders.Store(messageId, client)
-		client.ProposeChannel <- func() {
+		s.proposeChannel <- func() {
 			if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
 				log.Printf("Propose error: %v", err)
 			}
