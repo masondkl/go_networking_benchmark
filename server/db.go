@@ -137,8 +137,6 @@ func (s *Server) DbHandler() {
 				} else {
 					fmt.Printf("1 Unknown op %v\n", op)
 				}
-			} else {
-				fmt.Printf("2 Unknown op %v\n", op)
 			}
 		}
 	}
