@@ -115,7 +115,7 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 			log.Printf("No sender found for id %d", id)
 			return
 		}
-		request := senderAny.(shared.PendingRead)
+		request := senderAny.(shared.Client)
 
 		buffer := s.pool.Get().([]byte)
 		atomic.AddUint32(&s.poolSize, ^uint32(0))
@@ -126,8 +126,8 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(data)))
 		copy(buffer[9:length], data)
 
-		request.Client.Channel <- func() {
-			if err := shared.Write(request.Client.Connection, buffer[:length]); err != nil {
+		request.Channel <- func() {
+			if err := shared.Write(request.Connection, buffer[:length]); err != nil {
 				log.Printf("Write error: %v", err)
 			}
 			atomic.AddUint32(&s.poolSize, uint32(1))
