@@ -107,6 +107,7 @@ func (s *Server) DbHandler() {
 				value := data[keySize+30 : keySize+30+valueSize]
 				memoryDb[string(key)] = value
 				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
+					fmt.Printf("We are the owner: %d\n")
 					s.respondToClient(shared.OP_WRITE_MEMORY, messageId, nil)
 				}
 			} else if op == shared.OP_WRITE {
