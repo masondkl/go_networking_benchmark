@@ -47,7 +47,8 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	for i := range msgs {
 		msg := msgs[i]
 		size := msg.Size() + 5
-		buffer := make([]byte, size)
+		buffer := s.pool.Get().([]byte)
+		buffer = shared.GrowSlice(buffer, uint32(size))
 		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
 		buffer[4] = shared.OP_MESSAGE
 		_, err := msg.MarshalTo(buffer[5:])
@@ -65,6 +66,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 				log.Printf("Write error to peer %d: %v", peerIdx+1, err)
 			}
 			atomic.AddUint32(&s.poolSize, 1)
+			s.pool.Put(buffer)
 		}
 
 	}
