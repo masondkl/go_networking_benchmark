@@ -307,6 +307,8 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	fmt.Printf("Entry index: %d\n", entry.Index)
 }
 
+var reads uint32
+
 func (s *Server) processReadStates(readStates []raft.ReadState) {
 	for _, rs := range readStates {
 		messageId := uuid.UUID(rs.RequestCtx)
@@ -322,7 +324,8 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 			panic(fmt.Sprintf("Invalid type in senders map for messageId-%d", messageId))
 		}
 
-		fmt.Printf("got read state: %d\n", rs.Index)
+		reads += 1
+		fmt.Printf("got read state: %d - %d\n", rs.Index, reads)
 
 		if rs.Index <= s.applyIndex {
 			fmt.Printf("Fast path read: %d\n", rs.Index)
