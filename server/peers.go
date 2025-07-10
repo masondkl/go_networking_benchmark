@@ -100,7 +100,6 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		}
 
 		buffer[0] = shared.OP_MESSAGE
-		fmt.Printf("Writing over: %d\n", offset-4)
 		binary.LittleEndian.PutUint32(buffer[1:5], uint32(offset-4))
 		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(group)))
 
@@ -108,7 +107,7 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
 		peer := s.peerConnections[peerIdx][connIdx]
 		peer.Channel <- func() {
-			fmt.Printf("Writing out message: %d\n", offset)
+			fmt.Printf("Writing out message to %d: size=%d\n", to, offset)
 			if err := shared.Write(*peer.Connection, buffer[:offset]); err != nil {
 				log.Printf("Write error to peer %d: %v", to, err)
 			}
