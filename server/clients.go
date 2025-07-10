@@ -86,7 +86,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 	} else {
 		size += 4
 		//buffer := make([]byte, size)
-		buffer := s.pool.Get().([]byte)
+		buffer := s.pool.Get()
 		buffer = shared.GrowSlice(buffer, uint32(size))
 		buffer[4] = shared.OP_FORWARD
 		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
@@ -118,7 +118,7 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		}
 		request := senderAny.(shared.Client)
 
-		buffer := s.pool.Get().([]byte)
+		buffer := s.pool.Get()
 		atomic.AddUint32(&s.poolSize, ^uint32(0))
 		length := uint32(9 + len(data))
 		buffer = shared.GrowSlice(buffer, length)
@@ -142,7 +142,7 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		}
 		request := senderAny.(shared.Client)
 		request.Channel <- func() {
-			buffer := s.pool.Get().([]byte)
+			buffer := s.pool.Get()
 			atomic.AddUint32(&s.poolSize, ^uint32(0))
 			binary.LittleEndian.PutUint32(buffer[:4], 1)
 			buffer[4] = op

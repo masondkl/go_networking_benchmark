@@ -52,7 +52,7 @@ type WalSlot struct {
 type Server struct {
 	senders             sync.Map
 	peerAddresses       []string
-	pool                sync.Pool
+	pool                *BoundedPool
 	node                raft.Node
 	storage             *raft.MemoryStorage
 	config              *raft.Config
@@ -76,21 +76,45 @@ type Server struct {
 
 var poolSize uint32
 
-func (s *Server) initPool() {
-	s.pool = sync.Pool{
-		New: func() interface{} {
-			fmt.Printf("Making a new buffer\n")
-			return make([]byte, s.flags.PoolDataSize)
-		},
-	}
+type BoundedPool struct {
+	buffers chan []byte
+}
 
-	stored := make([][]byte, s.flags.PoolWarmupSize)
-	for i := range stored {
-		stored[i] = s.pool.Get().([]byte)
+func NewBoundedPool(size int, bufSize int) *BoundedPool {
+	p := &BoundedPool{buffers: make(chan []byte, size)}
+	for i := 0; i < size; i++ {
+		p.buffers <- make([]byte, bufSize)
 	}
-	for i := range stored {
-		s.pool.Put(stored[i])
+	return p
+}
+
+func (p *BoundedPool) Get() []byte {
+	return <-p.buffers // Blocks if empty
+}
+
+func (p *BoundedPool) Put(buf []byte) {
+	select {
+	case p.buffers <- buf: // Reuse if space
+	default: // Discard if pool is full
 	}
+}
+
+func (s *Server) initPool() {
+	s.pool = NewBoundedPool(s.flags.PoolWarmupSize, s.flags.PoolDataSize)
+	//s.pool = sync.Pool{
+	//	New: func() interface{} {
+	//		fmt.Printf("Making a new buffer\n")
+	//		return make([]byte, s.flags.PoolDataSize)
+	//	},
+	//}
+	//
+	//stored := make([][]byte, s.flags.PoolWarmupSize)
+	//for i := range stored {
+	//	stored[i] = s.pool.Get().([]byte)
+	//}
+	//for i := range stored {
+	//	s.pool.Put(stored[i])
+	//}
 
 	//atomic.AddUint32(&s.poolSize, uint32(s.flags.PoolWarmupSize))
 
@@ -127,7 +151,7 @@ func (s *Server) setupRaft() {
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
 		if !(s.flags.Memory) {
-			buffer := s.pool.Get().([]byte)
+			buffer := s.pool.Get()
 			atomic.AddUint32(&s.poolSize, ^uint32(0))
 			buffer = shared.GrowSlice(buffer, uint32(hs.Size()))
 			size, err := hs.MarshalTo(buffer)
@@ -199,7 +223,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			for walIndex := range grouped {
 				walEntries := grouped[walIndex]
 				slot := s.walSlots[walIndex]
-				buffer := s.pool.Get().([]byte)
+				buffer := s.pool.Get()
 				atomic.AddUint32(&s.poolSize, ^uint32(0))
 				size := 0
 				for entryIndex := range walEntries {
