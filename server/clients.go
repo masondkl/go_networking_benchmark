@@ -87,6 +87,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 			}
 		}
 	} else {
+		fmt.Printf("We are forwarding!\n")
 		buffer := s.pool.Get().([]byte)
 		buffer = shared.GrowSlice(buffer, uint32(size))
 		buffer[0] = shared.OP_FORWARD
