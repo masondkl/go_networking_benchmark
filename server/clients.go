@@ -102,7 +102,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {
 				log.Printf("Write error to peer %d: %v", s.leader, err)
 			}
-			fmt.Printf("Forwarded out: %d\n", size)
+			fmt.Printf("\nForwarded out: %d\n", size)
 			atomic.AddUint32(&s.poolSize, 1)
 			s.pool.Put(buffer)
 		}
