@@ -102,6 +102,7 @@ func (s *Server) DbHandler() {
 			keySize := binary.LittleEndian.Uint32(data[22:26])
 			key := data[26 : keySize+26]
 			if op == shared.OP_WRITE_MEMORY {
+				fmt.Printf("Write memory\n")
 				valueSize := binary.LittleEndian.Uint32(data[keySize+26:])
 				value := data[keySize+30 : keySize+30+valueSize]
 				memoryDb[string(key)] = value
@@ -132,7 +133,11 @@ func (s *Server) DbHandler() {
 						panic(err)
 					}
 					s.respondToClient(shared.OP_READ, messageId, value)
+				} else {
+					fmt.Printf("Unknown op %v\n", op)
 				}
+			} else {
+				fmt.Printf("Unknown op %v\n", op)
 			}
 		}
 	}
