@@ -67,7 +67,7 @@ type Server struct {
 	poolSize            uint32
 	flags               *ServerFlags
 	applyIndex          uint64
-	waiters             map[uint64][]chan struct{}
+	waiters             map[uint64][][]byte
 	stepChannel         chan func()
 	proposeChannel      chan func()
 	readIndexChannel    chan func()
@@ -274,12 +274,12 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 }
 
 func (s *Server) Trigger(appliedIndex uint64) {
-	for index, chans := range s.waiters {
+	for index, keys := range s.waiters {
 		if index <= appliedIndex {
-			for _, ch := range chans {
-				close(ch) // unblock the s
+			for _, key := range keys {
+				s.dbChannel <- key
 			}
-			delete(s.waiters, index) // clean up
+			delete(s.waiters, index)
 		}
 	}
 }
@@ -322,12 +322,7 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 		if rs.Index <= s.applyIndex {
 			s.dbChannel <- readReq.Key
 		} else {
-			ch := make(chan struct{})
-			s.waiters[rs.Index] = append(s.waiters[rs.Index], ch)
-			s.readIndexChannel <- func() {
-				<-ch
-				s.dbChannel <- readReq.Key
-			}
+			s.waiters[rs.Index] = append(s.waiters[rs.Index], readReq.Key)
 		}
 	}
 }
@@ -405,7 +400,7 @@ func NewServer(serverFlags *ServerFlags) *Server {
 		hardstateMutex:   &sync.Mutex{},
 		dbChannel:        make(chan []byte, 10000000),
 		flags:            serverFlags,
-		waiters:          make(map[uint64][]chan struct{}),
+		waiters:          make(map[uint64][][]byte),
 		proposeChannel:   make(chan func(), 1000000),
 		stepChannel:      make(chan func(), 1000000),
 		readIndexChannel: make(chan func(), 1000000),
