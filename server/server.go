@@ -325,6 +325,7 @@ func (s *Server) processReadStates(readStates []raft.ReadState) {
 		fmt.Printf("got read state: %d\n", rs.Index)
 
 		if rs.Index <= s.applyIndex {
+			fmt.Printf("Fast path read: %d\n", rs.Index)
 			s.dbChannel <- readReq.Key
 		} else {
 			s.waiters[rs.Index] = append(s.waiters[rs.Index], readReq.Key)
