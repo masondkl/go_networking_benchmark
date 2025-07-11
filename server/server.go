@@ -115,33 +115,27 @@ func (s *Server) initPool() {
 	s.pools = &Pools{
 		pool50: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool 50\n")
-			return cAlloc(50)
-			//return make([]byte, 50)
+			return make([]byte, 50)
 		}),
 		pool1500: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool 1500\n")
-			return cAlloc(1500)
-			//return make([]byte, 1500)
+			return make([]byte, 1500)
 		}),
 		pool15000: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool 15000\n")
-			return cAlloc(15000)
-			//return make([]byte, 15000)
+			return make([]byte, 15000)
 		}),
 		pool50000: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool 50000\n")
-			return cAlloc(50000)
-			//return make([]byte, 50000)
+			return make([]byte, 50000)
 		}),
 		pool150000: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool 150000\n")
-			return cAlloc(150000)
-			//return make([]byte, 150000)
+			return make([]byte, 150000)
 		}),
 		poolMaxBatchSize: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool MaxBatchSize\n")
-			return cAlloc(maxBatchSize)
-			//return make([]byte, maxBatchSize)
+			return make([]byte, maxBatchSize)
 		}),
 	}
 
@@ -161,17 +155,17 @@ func (s *Server) initPool() {
 
 	//atomic.AddUint32(&s.poolSize, uint32(s.flags.PoolWarmupSize))
 
-	//go func() {
-	//	for {
-	//		time.Sleep(250 * time.Millisecond)
-	//		fmt.Printf("\npool50: %d\n", s.pools.pool50.Head)
-	//		fmt.Printf("pool1500: %d\n", s.pools.pool1500.Head)
-	//		fmt.Printf("pool15000: %d\n", s.pools.pool15000.Head)
-	//		fmt.Printf("pool50000: %d\n", s.pools.pool50000.Head)
-	//		fmt.Printf("pool150000: %d\n", s.pools.pool150000.Head)
-	//		fmt.Printf("poolMaxBatchSize: %d\n", s.pools.poolMaxBatchSize.Head)
-	//	}
-	//}()
+	go func() {
+		for {
+			time.Sleep(250 * time.Millisecond)
+			fmt.Printf("\npool50: %d\n", s.pools.pool50.Head)
+			fmt.Printf("pool1500: %d\n", s.pools.pool1500.Head)
+			fmt.Printf("pool15000: %d\n", s.pools.pool15000.Head)
+			fmt.Printf("pool50000: %d\n", s.pools.pool50000.Head)
+			fmt.Printf("pool150000: %d\n", s.pools.pool150000.Head)
+			fmt.Printf("poolMaxBatchSize: %d\n", s.pools.poolMaxBatchSize.Head)
+		}
+	}()
 }
 
 func (s *Server) setupRaft() {

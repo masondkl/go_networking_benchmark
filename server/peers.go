@@ -1,6 +1,5 @@
 package server
 
-import "C"
 import (
 	"context"
 	"encoding/binary"
@@ -11,17 +10,7 @@ import (
 	"networking_benchmark/shared"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
-
-func cAlloc(size int) []byte {
-	ptr := C.malloc(C.size_t(size))
-	return (*[1 << 30]byte)(unsafe.Pointer(ptr))[:size:size]
-}
-
-func cFree(b []byte) {
-	C.free(unsafe.Pointer(&b[0]))
-}
 
 type MessageBatch struct {
 	TotalSize int
