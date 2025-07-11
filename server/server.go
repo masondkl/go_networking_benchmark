@@ -161,6 +161,7 @@ func (s *Server) initPool() {
 			fmt.Printf("\npool50: %d\n", s.pools.pool50.Head)
 			fmt.Printf("pool1500: %d\n", s.pools.pool1500.Head)
 			fmt.Printf("pool15000: %d\n", s.pools.pool15000.Head)
+			fmt.Printf("pool50000: %d\n", s.pools.pool50000.Head)
 			fmt.Printf("pool150000: %d\n", s.pools.pool150000.Head)
 			fmt.Printf("poolMaxBatchSize: %d\n", s.pools.poolMaxBatchSize.Head)
 		}
