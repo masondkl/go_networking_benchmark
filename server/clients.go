@@ -17,7 +17,7 @@ type raftRequest struct {
 }
 
 func (s *Server) handleClientConnection(conn net.Conn) {
-	readBuffer := make([]byte, 1000000)
+	readBuffer := make([]byte, maxBatchSize)
 	leaderBuffer := make([]byte, 1)
 
 	client := shared.Client{
@@ -72,6 +72,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 
 	size := len(data) + 21
 	s.senders.Store(messageId, client)
+	//fmt.Printf("Storing messageId: %v\n", messageId)
 	if s.leader == ownerId {
 		dataCopy := make([]byte, size)
 		dataCopy[0] = shared.OP_MESSAGE
@@ -84,10 +85,9 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 			}
 		}
 	} else {
+		//fmt.Printf("Forwarding message\n")
 		size += 4
-		//buffer := make([]byte, size)
-		buffer := s.pool.Get().([]byte)
-		buffer = shared.GrowSlice(buffer, uint32(size))
+		buffer := s.GetBuffer(size)
 		buffer[4] = shared.OP_FORWARD
 		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
 		copy(buffer[5:21], messageId[:16])
@@ -101,9 +101,7 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {
 				log.Printf("Write error to peer %d: %v", s.leader, err)
 			}
-			//fmt.Printf("\nForwarded out: %d\n", size)
-			atomic.AddUint32(&s.poolSize, 1)
-			//s.pool.Put(buffer)
+			s.PutBuffer(buffer)
 		}
 	}
 }
@@ -113,16 +111,15 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 		senderAny, ok := s.senders.LoadAndDelete(id)
 		//fmt.Printf("Removing index: %d\n", index)
 		if !ok {
-			log.Printf("No sender found for id %d", id)
+			log.Printf("No sender found for read id %v", id)
 			return
 		}
+		//fmt.Printf("Deleted read messageid: %v\n", id)
 		request := senderAny.(shared.Client)
+		length := 9 + len(data)
+		buffer := s.GetBuffer(length)
 
-		buffer := s.pool.Get().([]byte)
-		atomic.AddUint32(&s.poolSize, ^uint32(0))
-		length := uint32(9 + len(data))
-		buffer = shared.GrowSlice(buffer, length)
-		binary.LittleEndian.PutUint32(buffer[:4], length-4)
+		binary.LittleEndian.PutUint32(buffer[:4], uint32(length)-4)
 		buffer[4] = op
 		binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(data)))
 		copy(buffer[9:length], data)
@@ -131,27 +128,25 @@ func (s *Server) respondToClient(op byte, id uuid.UUID, data []byte) {
 			if err := shared.Write(request.Connection, buffer[:length]); err != nil {
 				log.Printf("Write error: %v", err)
 			}
-			atomic.AddUint32(&s.poolSize, uint32(1))
-			s.pool.Put(buffer)
+			s.PutBuffer(buffer)
 		}
 	} else if op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY {
 		senderAny, ok := s.senders.LoadAndDelete(id)
 		if !ok {
-			log.Printf("No sender found for id %d", id)
+			log.Printf("No sender found for write id %v", id)
 			return
 		}
+		//fmt.Printf("Deleted write messageid: %v\n", id)
 		request := senderAny.(shared.Client)
 		request.Channel <- func() {
-			buffer := s.pool.Get().([]byte)
-			atomic.AddUint32(&s.poolSize, ^uint32(0))
+			buffer := s.GetBuffer(5)
 			binary.LittleEndian.PutUint32(buffer[:4], 1)
 			buffer[4] = op
 			length := uint32(5)
 			if err := shared.Write(request.Connection, buffer[:length]); err != nil {
 				log.Printf("Write error: %v", err)
 			}
-			atomic.AddUint32(&s.poolSize, uint32(1))
-			s.pool.Put(buffer)
+			s.PutBuffer(buffer)
 		}
 	}
 }
@@ -162,20 +157,10 @@ func (s *Server) startClientListener() {
 		panic(err)
 	}
 
-	go func() {
-		<-s.shutdownChan
-		listener.Close()
-	}()
-
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			select {
-			case <-s.shutdownChan:
-				return
-			default:
-				panic(err)
-			}
+			panic(err)
 		}
 
 		if err := conn.(*net.TCPConn).SetNoDelay(true); err != nil {

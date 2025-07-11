@@ -12,63 +12,86 @@ import (
 	"time"
 )
 
-//
-//func getConfStateSize(state raftpb.ConfState) int {
-//
-//}
-//
-//// ConfState ConfState `protobuf:"bytes,1,opt,name=conf_state,json=confState" json:"conf_state"`
-//// Index     uint64    `protobuf:"varint,2,opt,name=index" json:"index"`
-//// Term      uint64    `protobuf:"varint,3,opt,name=term" json:"term"`
-//func getSnapshotMetadataSize(metadata raftpb.SnapshotMetadata) int {
-//	return 16 + getConfStateSize(metadata.ConfState)
-//}
-//
-//// Data     []byte           `protobuf:"bytes,1,opt,name=data" json:"data,omitempty"`
-//// Metadata SnapshotMetadata `protobuf:"bytes,2,opt,name=metadata" json:"metadata"`
-//func getSnapshotSize(snapshot raftpb.Snapshot) int {
-//	return len(snapshot.Data) + getSnapshotMetadataSize(snapshot.Metadata)
-//}
-//
-//// Term  uint64    `protobuf:"varint,2,opt,name=Term" json:"Term"`
-//// Index uint64    `protobuf:"varint,3,opt,name=Index" json:"Index"`
-//// Type  EntryType `protobuf:"varint,1,opt,name=Type,enum=raftpb.EntryType" json:"Type"`
-//// Data  []byte    `protobuf:"bytes,4,opt,name=Data" json:"Data,omitempty"`
-//func getEntrySize(entry raftpb.Entry) int {
-//	return 17 + len(entry.Data)
-//}
-//
-//func getMessageSize(message raftpb.Message) int {
-//	contextSize := len(message.Context)
-//
-//}
+type MessageBatch struct {
+	TotalSize int
+	Messages  []raftpb.Message
+}
+
+var maxBatchSize = (1024 * 1024) * 50
+
+var grouped map[uint64][]*MessageBatch
 
 func (s *Server) processMessages(msgs []raftpb.Message) {
+	//test := make([]uint64, 4)
+
 	for i := range msgs {
 		msg := msgs[i]
-		size := msg.Size() + 5
-		buffer := s.pool.Get().([]byte)
-		buffer = shared.GrowSlice(buffer, uint32(size))
-		binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
-		buffer[4] = shared.OP_MESSAGE
-		_, err := msg.MarshalTo(buffer[5:])
-		if err != nil {
-			panic(err)
+		msgSize := msg.Size() + 4
+		batches, exists := grouped[msg.To]
+		if !exists {
+			batches = []*MessageBatch{{
+				TotalSize: 0,
+				Messages:  make([]raftpb.Message, 0),
+			}}
+			grouped[msg.To] = batches
 		}
 
-		peerIdx := msg.To - 1
-		connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
-		peer := s.peerConnections[peerIdx][connIdx]
+		lastBatch := batches[len(batches)-1]
+		if lastBatch.TotalSize+msgSize > maxBatchSize {
+			grouped[msg.To] = append(batches, &MessageBatch{
+				TotalSize: msgSize,
+				Messages:  []raftpb.Message{msg},
+			})
+		} else {
+			lastBatch.Messages = append(lastBatch.Messages, msg)
+			lastBatch.TotalSize += msgSize
+		}
+	}
+	//
+	//for i := range test {
+	//	if test[i] > 1 {
+	//		fmt.Printf("Sending multiple messages: %d\n", test[i])
+	//	}
+	//}
 
-		peer.Channel <- func() {
-			//fmt.Printf("Sending message to peer %d with size=%d\n", peerIdx+1, size)
-			if err := shared.Write(*peer.Connection, buffer[:size]); err != nil {
-				log.Printf("Write error to peer %d: %v", peerIdx+1, err)
+	for recipient, batches := range grouped {
+		for _, batch := range batches {
+			maxSize := batch.TotalSize + 9
+			buffer := s.GetBuffer(maxSize)
+			binary.LittleEndian.PutUint32(buffer[0:4], uint32(maxSize))
+			buffer[4] = shared.OP_MESSAGE
+			binary.LittleEndian.PutUint32(buffer[5:9], uint32(len(batch.Messages)))
+			//fmt.Printf("Sending %d messages to %d\n", len(batch.Messages), recipient)
+			offset := 9
+			for _, msg := range batch.Messages {
+				msgSize := msg.Size()
+				binary.LittleEndian.PutUint32(buffer[offset:offset+4], uint32(msgSize))
+				size, err := msg.MarshalTo(buffer[offset+4:])
+				if err != nil {
+					panic(err)
+				}
+
+				if size != msg.Size() {
+					fmt.Printf("Message size is different: %d - %d\n", size, msgSize)
+				}
+
+				offset += msgSize + 4
 			}
-			atomic.AddUint32(&s.poolSize, 1)
-			s.pool.Put(buffer)
-		}
 
+			peerIdx := recipient - 1
+			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+			peer := s.peerConnections[peerIdx][connIdx]
+			peer.Channel <- func() {
+				if err := shared.Write(*peer.Connection, buffer[:maxSize]); err != nil {
+					log.Printf("Write error to peer %d: %v", peerIdx+1, err)
+				}
+				s.PutBuffer(buffer)
+			}
+		}
+	}
+
+	for k := range grouped {
+		delete(grouped, k)
 	}
 }
 
@@ -90,59 +113,58 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 	peerIndex := binary.LittleEndian.Uint32(bytes)
 	log.Printf("Got connection from peer %d", peerIndex)
 
-	readBuffer := make([]byte, 10000000)
+	readBuffer := make([]byte, maxBatchSize+1000)
 	for {
 		if err := shared.Read(conn, readBuffer[:4]); err != nil {
 			return
 		}
 		totalSize := binary.LittleEndian.Uint32(readBuffer[:4]) - 4
-		//fmt.Printf("\nRead size from %d: %d\n", peerIndex, totalSize)
-		readBuffer = shared.GrowSlice(readBuffer, totalSize)
 		if err := shared.Read(conn, readBuffer[:totalSize]); err != nil {
 			return
 		}
 
+		//fmt.Printf("\nRead total size: %d\n", totalSize)
+
 		op := readBuffer[0]
-		//fmt.Printf("Got op: %d\n", op)
 		if op == shared.OP_FORWARD {
-			//fmt.Printf("Got forward from peer %d, %d\n", peerIndex, totalSize)
-			dataCopy := make([]byte, totalSize)
-			copy(dataCopy, readBuffer[:totalSize])
+			//fmt.Printf("Got forward from peer %d\n", peerIndex)
+			//buffer := s.GetBuffer(int(totalSize))
+			buffer := make([]byte, totalSize)
+			copy(buffer, readBuffer[:totalSize])
 			s.proposeChannel <- func() {
-				if err := s.node.Propose(context.TODO(), dataCopy); err != nil {
+				if err := s.node.Propose(context.TODO(), buffer[:totalSize]); err != nil {
 					log.Printf("Propose error: %v", err)
 				}
 			}
 		} else if op == shared.OP_MESSAGE {
-			//fmt.Printf("Got message from peer size=%d\n", peerIndex)
-			var msg raftpb.Message
-			if err := msg.Unmarshal(readBuffer[1:totalSize]); err != nil {
-				panic(fmt.Sprintf("Error unmarshaling message: %v", err))
-			}
-
-			stepChannel <- func() {
-				if msg.Type == raftpb.MsgHeartbeat {
-					s.leader = uint32(msg.From)
-				} else if msg.Type == raftpb.MsgHeartbeatResp {
-					s.leader = uint32(s.config.ID)
+			//fmt.Printf("Got message from peer %d\n", peerIndex)
+			batchSize := binary.LittleEndian.Uint32(readBuffer[1:5])
+			//fmt.Printf("Got message from peer %d (%d messages)\n", peerIndex, batchSize)
+			offset := uint32(5)
+			for range batchSize {
+				msgSize := binary.LittleEndian.Uint32(readBuffer[offset : offset+4])
+				offset += 4
+				var msg raftpb.Message
+				if err := msg.Unmarshal(readBuffer[offset : offset+msgSize]); err != nil {
+					panic(fmt.Sprintf("Error unmarshaling message: %v", err))
 				}
+				offset += msgSize
+				stepChannel <- func() {
+					if msg.Type == raftpb.MsgHeartbeat {
+						s.leader = uint32(msg.From)
+					} else if msg.Type == raftpb.MsgHeartbeatResp {
+						s.leader = uint32(s.config.ID)
+					}
 
-				if err := s.node.Step(context.TODO(), msg); err != nil {
-					log.Printf("Step error: %v", err)
+					if err := s.node.Step(context.TODO(), msg); err != nil {
+						log.Printf("Step error: %v", err)
+					}
 				}
 			}
+		} else if op == shared.OP_READ_INDEX {
 
-			//s.stepChannel <- func() {
-			//	if msg.Type == raftpb.MsgHeartbeat {
-			//		s.leader = uint32(msg.From)
-			//	} else if msg.Type == raftpb.MsgHeartbeatResp {
-			//		s.leader = uint32(s.config.ID)
-			//	}
-			//
-			//	if err := s.node.Step(context.TODO(), msg); err != nil {
-			//		log.Printf("Step error: %v", err)
-			//	}
-			//}
+		} else if op == shared.OP_READ_INDEX_RESP {
+
 		} else {
 			panic(fmt.Sprintf("Unknown op: %v", op))
 		}
@@ -210,20 +232,10 @@ func (s *Server) startPeerListener() {
 		panic(err)
 	}
 
-	go func() {
-		<-s.shutdownChan
-		listener.Close()
-	}()
-
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			select {
-			case <-s.shutdownChan:
-				return
-			default:
-				panic(err)
-			}
+			panic(err)
 		}
 
 		if err := conn.(*net.TCPConn).SetNoDelay(true); err != nil {

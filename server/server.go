@@ -19,8 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-
 	//"sync/atomic"
 	"syscall"
 	"time"
@@ -28,8 +26,6 @@ import (
 
 type ServerFlags struct {
 	NodeIndex           int
-	PoolDataSize        int
-	PoolWarmupSize      int
 	NumPeerConnections  int
 	PeerListenAddress   string
 	ClientListenAddress string
@@ -49,23 +45,56 @@ type WalSlot struct {
 	mutex *sync.Mutex
 }
 
+type Pools struct {
+	pool50           *shared.Pool[[]byte]
+	pool1500         *shared.Pool[[]byte]
+	pool15000        *shared.Pool[[]byte]
+	pool150000       *shared.Pool[[]byte]
+	poolMaxBatchSize *shared.Pool[[]byte]
+}
+
+func (s *Server) GetBuffer(required int) []byte {
+	if required < 50 {
+		return s.pools.pool50.Get()
+	} else if required < 1500 {
+		return s.pools.pool1500.Get()
+	} else if required < 15000 {
+		return s.pools.pool15000.Get()
+	} else if required < 150000 {
+		return s.pools.pool150000.Get()
+	} else {
+		return s.pools.poolMaxBatchSize.Get()
+	}
+}
+
+func (s *Server) PutBuffer(buffer []byte) {
+	if len(buffer) == 50 {
+		s.pools.pool50.Put(buffer)
+	} else if len(buffer) == 1500 {
+		s.pools.pool1500.Put(buffer)
+	} else if len(buffer) == 15000 {
+		s.pools.pool15000.Put(buffer)
+	} else if len(buffer) == 150000 {
+		s.pools.pool150000.Put(buffer)
+	} else {
+		s.pools.poolMaxBatchSize.Put(buffer)
+	}
+}
+
 type Server struct {
 	senders             sync.Map
 	peerAddresses       []string
-	pool                sync.Pool
 	node                raft.Node
 	storage             *raft.MemoryStorage
 	config              *raft.Config
 	peerConnections     [][]shared.PeerConnection
 	peerConnRoundRobins []uint32
-	shutdownChan        chan struct{}
 	walSlots            []WalSlot
 	walBulkFile         *os.File
-	hardstateMutex      *sync.Mutex
 	hardstateFile       *os.File
 	dbChannel           chan []byte
-	poolSize            uint32
 	flags               *ServerFlags
+	pools               *Pools
 	applyIndex          uint64
 	leader              uint32
 	waiters             map[uint64][][]byte
@@ -77,28 +106,56 @@ type Server struct {
 var poolSize uint32
 
 func (s *Server) initPool() {
-	s.pool = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, s.flags.PoolDataSize)
-		},
+
+	s.pools = &Pools{
+		pool50: shared.NewPool(64, func() []byte {
+			fmt.Printf("Creating new pool 50\n")
+			return make([]byte, 50)
+		}),
+		pool1500: shared.NewPool(64, func() []byte {
+			fmt.Printf("Creating new pool 1500\n")
+			return make([]byte, 1500)
+		}),
+		pool15000: shared.NewPool(64, func() []byte {
+			fmt.Printf("Creating new pool 15000\n")
+			return make([]byte, 15000)
+		}),
+		pool150000: shared.NewPool(64, func() []byte {
+			fmt.Printf("Creating new pool 150000\n")
+			return make([]byte, 150000)
+		}),
+		poolMaxBatchSize: shared.NewPool(64, func() []byte {
+			fmt.Printf("Creating new pool MaxBatchSize\n")
+			return make([]byte, maxBatchSize)
+		}),
 	}
 
-	stored := make([][]byte, s.flags.PoolWarmupSize)
-	for i := range stored {
-		stored[i] = s.pool.Get().([]byte)
-	}
-	for i := range stored {
-		s.pool.Put(stored[i])
-	}
+	//s.pool = sync.Pool{
+	//	New: func() interface{} {
+	//		return make([]byte, s.flags.PoolDataSize)
+	//	},
+	//}
+	//
+	//stored := make([][]byte, s.flags.PoolWarmupSize)
+	//for i := range stored {
+	//	stored[i] = s.pool.Get().([]byte)
+	//}
+	//for i := range stored {
+	//	s.pool.Put(stored[i])
+	//}
 
 	//atomic.AddUint32(&s.poolSize, uint32(s.flags.PoolWarmupSize))
 
-	//go func() {
-	//	for {
-	//		time.Sleep(250 * time.Millisecond)
-	//		//fmt.Printf("Current buffers: %d\n", atomic.LoadUint32(&s.poolSize))
-	//	}
-	//}()
+	go func() {
+		for {
+			time.Sleep(250 * time.Millisecond)
+			fmt.Printf("\npool50: %d\n", s.pools.pool50.Head)
+			fmt.Printf("pool1500: %d\n", s.pools.pool1500.Head)
+			fmt.Printf("pool15000: %d\n", s.pools.pool15000.Head)
+			fmt.Printf("pool150000: %d\n", s.pools.pool150000.Head)
+			fmt.Printf("poolMaxBatchSize: %d\n", s.pools.poolMaxBatchSize.Head)
+		}
+	}()
 }
 
 func (s *Server) setupRaft() {
@@ -126,14 +183,11 @@ func (s *Server) setupRaft() {
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
 		if !(s.flags.Memory) {
-			buffer := s.pool.Get().([]byte)
-			atomic.AddUint32(&s.poolSize, ^uint32(0))
-			buffer = shared.GrowSlice(buffer, uint32(hs.Size()))
+			buffer := s.GetBuffer(hs.Size())
 			size, err := hs.MarshalTo(buffer)
 			if err != nil {
 				panic(err)
 			}
-			s.hardstateMutex.Lock()
 			count := int64(0)
 			for {
 				wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
@@ -160,9 +214,7 @@ func (s *Server) processHardState(hs raftpb.HardState) {
 					return
 				}
 			}
-			s.hardstateMutex.Unlock()
-			atomic.AddUint32(&s.poolSize, uint32(1))
-			s.pool.Put(buffer)
+			s.PutBuffer(buffer)
 		}
 
 		err := s.storage.SetHardState(hs)
@@ -198,13 +250,11 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 			for walIndex := range grouped {
 				walEntries := grouped[walIndex]
 				slot := s.walSlots[walIndex]
-				buffer := s.pool.Get().([]byte)
-				atomic.AddUint32(&s.poolSize, ^uint32(0))
 				size := 0
 				for entryIndex := range walEntries {
 					size += walEntries[entryIndex].Size()
 				}
-				buffer = shared.GrowSlice(buffer, uint32(size))
+				buffer := s.GetBuffer(size)
 				size = 0
 				for entryIndex := range walEntries {
 					entry := walEntries[entryIndex]
@@ -226,8 +276,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 							break
 						}
 					}
-					atomic.AddUint32(&s.poolSize, uint32(1))
-					s.pool.Put(buffer)
+					s.PutBuffer(buffer)
 					if s.flags.Manual == "fsync" {
 						err := syscall.Fsync(int(slot.file.Fd()))
 						if err != nil {
@@ -274,26 +323,27 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 	s.node.ApplyConfChange(cc)
 }
 
-func (s *Server) Trigger(appliedIndex uint64) {
-	//fmt.Printf("Applied index: %d\n", appliedIndex)
-	for index, keys := range s.waiters {
-		if index <= appliedIndex {
-			for _, key := range keys {
-				s.dbChannel <- key
-			}
-			delete(s.waiters, index)
-		}
-	}
-}
+//func (s *Server) Trigger(appliedIndex uint64) {
+//	//fmt.Printf("Applied index: %d\n", appliedIndex)
+//	for index, keys := range s.waiters {
+//		if index <= appliedIndex {
+//			for _, key := range keys {
+//				s.dbChannel <- key
+//			}
+//			delete(s.waiters, index)
+//		}
+//	}
+//}
 
 func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	if len(entry.Data) >= 8 {
 		messageId := uuid.UUID(entry.Data[1:17])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[17:21])
 		op := entry.Data[21]
+		//fmt.Printf("Committed messageid: %v\n", messageId)
 		//fmt.Printf("We commited\n")
 		s.dbChannel <- entry.Data
-		if s.flags.FastPathWrites && (op == shared.OP_WRITE_MEMORY || op == shared.OP_READ_MEMORY) && ownerIndex == uint32(s.config.ID) {
+		if s.flags.FastPathWrites && (op == shared.OP_WRITE_MEMORY || op == shared.OP_WRITE) && ownerIndex == uint32(s.config.ID) {
 			s.respondToClient(op, messageId, nil)
 		}
 	}
@@ -354,18 +404,12 @@ func (s *Server) run() {
 
 	for {
 		select {
-		case <-s.shutdownChan:
-			return
 		case <-ticker.C:
 			s.node.Tick()
 		case rd := <-s.node.Ready():
 			s.processReady(rd)
 		}
 	}
-}
-
-func (s *Server) Shutdown() {
-	close(s.shutdownChan)
 }
 
 func wipeWorkingDirectory() error {
@@ -395,18 +439,16 @@ func wipeWorkingDirectory() error {
 }
 
 func NewServer(serverFlags *ServerFlags) *Server {
+	grouped = make(map[uint64][]*MessageBatch)
 	s := &Server{
 		peerAddresses:    strings.Split(serverFlags.PeerAddressesString, ","),
-		shutdownChan:     make(chan struct{}),
 		walSlots:         make([]WalSlot, serverFlags.WalFileCount),
-		hardstateMutex:   &sync.Mutex{},
 		dbChannel:        make(chan []byte, 10000000),
 		flags:            serverFlags,
 		waiters:          make(map[uint64][][]byte),
 		proposeChannel:   make(chan func(), 1000000),
 		stepChannel:      make(chan func(), 1000000),
 		readIndexChannel: make(chan func(), 1000000),
-		poolSize:         uint32(serverFlags.PoolWarmupSize),
 	}
 
 	go func() {
@@ -514,8 +556,6 @@ func StartServer(args []string) {
 	fs := flag.NewFlagSet("server", flag.ExitOnError)
 	var (
 		NodeIndex           = fs.Int("node", 0, "node index")
-		PoolDataSize        = fs.Int("pool-data-size", 0, "pool data size")
-		PoolWarmupSize      = fs.Int("pool-warmup-size", 0, "pool warmup size")
 		NumPeerConnections  = fs.Int("peer-connections", 0, "number of peer connections")
 		PeerListenAddress   = fs.String("peer-listen", "", "peer listen address")
 		ClientListenAddress = fs.String("client-listen", "", "client listen address")
@@ -532,8 +572,6 @@ func StartServer(args []string) {
 	}
 	flags := &ServerFlags{
 		*NodeIndex,
-		*PoolDataSize,
-		*PoolWarmupSize,
 		*NumPeerConnections,
 		*PeerListenAddress,
 		*ClientListenAddress,
@@ -543,13 +581,6 @@ func StartServer(args []string) {
 		*Flags,
 		*Memory,
 		*FastPathWrites,
-	}
-
-	if *PoolDataSize <= 0 {
-		log.Fatalf("-pool-data-size must be > 0")
-	}
-	if *PoolWarmupSize < 0 {
-		log.Fatalf("-pool-warmup-size cannot be negative")
 	}
 	if *NumPeerConnections <= 0 {
 		log.Fatalf("-peer-connections must be > 0")

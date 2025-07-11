@@ -97,6 +97,7 @@ func (s *Server) DbHandler() {
 			//fmt.Printf("Handling data\n")
 			//messageIndex := binary.LittleEndian.Uint32(data[1:5])
 			messageId := uuid.UUID(data[1:17])
+			//fmt.Printf("Processing messageid: %v\n", messageId)
 			ownerIndex := binary.LittleEndian.Uint32(data[17:21])
 			op := data[21]
 			keySize := binary.LittleEndian.Uint32(data[22:26])
