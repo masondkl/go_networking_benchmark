@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+
 	//"sync/atomic"
 	"syscall"
 	"time"
@@ -62,7 +64,7 @@ func (s *Server) GetBuffer(required int) []byte {
 	} else if required < 15000 {
 		return s.pools.pool15000.Get()
 	} else if required < 50000 {
-		return s.pools.pool50000.Get()
+		return s.pools.pool150000.Get()
 	} else if required < 150000 {
 		return s.pools.pool150000.Get()
 	} else {
@@ -106,6 +108,7 @@ type Server struct {
 	stepChannel         chan func()
 	proposeChannel      chan func()
 	readIndexChannel    chan func()
+	commitIndex         uint32
 }
 
 var poolSize uint32
@@ -114,27 +117,27 @@ func (s *Server) initPool() {
 
 	s.pools = &Pools{
 		pool50: shared.NewPool(64, func() []byte {
-			fmt.Printf("Creating new pool 50\n")
+			//fmt.Printf("Creating new pool 50\n")
 			return make([]byte, 50)
 		}),
 		pool1500: shared.NewPool(64, func() []byte {
-			fmt.Printf("Creating new pool 1500\n")
+			//fmt.Printf("Creating new pool 1500\n")
 			return make([]byte, 1500)
 		}),
 		pool15000: shared.NewPool(64, func() []byte {
-			fmt.Printf("Creating new pool 15000\n")
+			//fmt.Printf("Creating new pool 15000\n")
 			return make([]byte, 15000)
 		}),
 		pool50000: shared.NewPool(64, func() []byte {
-			fmt.Printf("Creating new pool 50000\n")
+			//fmt.Printf("Creating new pool 50000\n")
 			return make([]byte, 50000)
 		}),
 		pool150000: shared.NewPool(64, func() []byte {
-			fmt.Printf("Creating new pool 150000\n")
+			//fmt.Printf("Creating new pool 150000\n")
 			return make([]byte, 150000)
 		}),
 		poolMaxBatchSize: shared.NewPool(64, func() []byte {
-			fmt.Printf("Creating new pool MaxBatchSize\n")
+			//fmt.Printf("Creating new pool MaxBatchSize\n")
 			return make([]byte, maxBatchSize)
 		}),
 	}
@@ -155,17 +158,17 @@ func (s *Server) initPool() {
 
 	//atomic.AddUint32(&s.poolSize, uint32(s.flags.PoolWarmupSize))
 
-	go func() {
-		for {
-			time.Sleep(250 * time.Millisecond)
-			fmt.Printf("\npool50: %d\n", s.pools.pool50.Head)
-			fmt.Printf("pool1500: %d\n", s.pools.pool1500.Head)
-			fmt.Printf("pool15000: %d\n", s.pools.pool15000.Head)
-			fmt.Printf("pool50000: %d\n", s.pools.pool50000.Head)
-			fmt.Printf("pool150000: %d\n", s.pools.pool150000.Head)
-			fmt.Printf("poolMaxBatchSize: %d\n", s.pools.poolMaxBatchSize.Head)
-		}
-	}()
+	//go func() {
+	//	for {
+	//		time.Sleep(250 * time.Millisecond)
+	//		fmt.Printf("\npool50: %d\n", s.pools.pool50.Head)
+	//		fmt.Printf("pool1500: %d\n", s.pools.pool1500.Head)
+	//		fmt.Printf("pool15000: %d\n", s.pools.pool15000.Head)
+	//		fmt.Printf("pool50000: %d\n", s.pools.pool50000.Head)
+	//		fmt.Printf("pool150000: %d\n", s.pools.pool150000.Head)
+	//		fmt.Printf("poolMaxBatchSize: %d\n", s.pools.poolMaxBatchSize.Head)
+	//	}
+	//}()
 }
 
 func (s *Server) setupRaft() {
@@ -345,46 +348,35 @@ func (s *Server) processConfChange(entry raftpb.Entry) {
 //	}
 //}
 
+func (s *Server) Trigger(index uint64) {
+	pendingReadRequestLock.Lock()
+	toDelete := make([]int, 0)
+	for readIndex, values := range pendingReadRequests {
+		if readIndex <= int(index) {
+			for _, value := range values {
+				s.dbChannel <- value.Data
+			}
+			toDelete = append(toDelete, readIndex)
+		}
+	}
+	for _, value := range toDelete {
+		delete(pendingReadRequests, value)
+	}
+	pendingReadRequestLock.Unlock()
+}
+
 func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 	if len(entry.Data) >= 8 {
 		messageId := uuid.UUID(entry.Data[1:17])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[17:21])
 		op := entry.Data[21]
-		//fmt.Printf("Committed messageid: %v\n", messageId)
-		//fmt.Printf("We commited\n")
-		s.dbChannel <- entry.Data
-		if s.flags.FastPathWrites && (op == shared.OP_WRITE_MEMORY || op == shared.OP_WRITE) && ownerIndex == uint32(s.config.ID) {
-			s.respondToClient(op, messageId, nil)
-		}
-	}
-}
-
-var reads uint32
-
-func (s *Server) processReadStates(readStates []raft.ReadState) {
-	for _, rs := range readStates {
-		messageId := uuid.UUID(rs.RequestCtx)
-
-		val, ok := s.senders.Load(messageId)
-
-		if !ok {
-			panic(fmt.Sprintf("Sender not found for messageId-%d", messageId))
-		}
-
-		readReq, ok := val.(shared.PendingRead)
-		if !ok {
-			panic(fmt.Sprintf("Invalid type in senders map for messageId-%d", messageId))
-		}
-
-		reads += 1
-		fmt.Printf("got read state: %d - %d\n", rs.Index, reads)
-
-		if rs.Index <= s.applyIndex {
-			fmt.Printf("Fast path read: %d\n", rs.Index)
-			s.dbChannel <- readReq.Key
-		} else {
-			s.waiters[rs.Index] = append(s.waiters[rs.Index], readReq.Key)
-			//s.Trigger(s.applyIndex)
+		atomic.SwapUint32(&s.commitIndex, uint32(entry.Index))
+		s.Trigger(entry.Index)
+		if op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY {
+			s.dbChannel <- entry.Data
+			if s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
+				s.respondToClient(op, messageId, nil)
+			}
 		}
 	}
 }
@@ -449,7 +441,6 @@ func wipeWorkingDirectory() error {
 }
 
 func NewServer(serverFlags *ServerFlags) *Server {
-	grouped = make(map[uint64][]*MessageBatch)
 	s := &Server{
 		peerAddresses:    strings.Split(serverFlags.PeerAddressesString, ","),
 		walSlots:         make([]WalSlot, serverFlags.WalFileCount),

@@ -12,8 +12,10 @@ const OP_READ_MEMORY = 3
 const OP_LEADER = 4
 const OP_FORWARD = 5
 const OP_MESSAGE = 6
-const OP_READ_INDEX = 7
+const OP_READ_INDEX_FORWARD = 7
 const OP_READ_INDEX_RESP = 8
+const OP_READ_INDEX_ACK = 9
+const OP_READ_INDEX_REQ = 10
 
 type Pool[T any] struct {
 	Head     uint32
@@ -73,7 +75,7 @@ type Client struct {
 
 type PendingRead struct {
 	Client Client
-	Key    []byte
+	Data   []byte
 }
 
 //func GrowSlice(buffer []byte, required uint32) []byte {

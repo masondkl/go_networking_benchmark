@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/google/uuid"
 	"go.etcd.io/etcd/raft/v3/raftpb"
 	"log"
 	"net"
 	"networking_benchmark/shared"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -19,7 +21,7 @@ type MessageBatch struct {
 
 var maxBatchSize = (1024 * 1024) * 50
 
-var grouped map[uint64][]*MessageBatch
+var grouped = make(map[uint64][]*MessageBatch)
 
 func (s *Server) processMessages(msgs []raftpb.Message) {
 	//test := make([]uint64, 4)
@@ -95,6 +97,16 @@ func (s *Server) processMessages(msgs []raftpb.Message) {
 	}
 }
 
+type ReadIndexStore struct {
+	Proposer uint32
+	Acks     int
+}
+
+var readIndexLock = &sync.Mutex{}
+var readIndexes = make(map[uuid.UUID]*ReadIndexStore)
+var pendingReadRequestLock = &sync.Mutex{}
+var pendingReadRequests = make(map[int][]shared.PendingRead)
+
 func (s *Server) handlePeerConnection(conn net.Conn) {
 	defer conn.Close()
 
@@ -161,10 +173,119 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 					}
 				}
 			}
-		} else if op == shared.OP_READ_INDEX {
+		} else if op == shared.OP_READ_INDEX_FORWARD {
+			messageId := uuid.UUID(readBuffer[1:17])
 
+			size := 21
+			buffer := s.GetBuffer(size)
+			binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
+			copy(buffer[5:21], messageId[:16])
+
+			if s.leader == uint32(s.config.ID) {
+				buffer[4] = shared.OP_READ_INDEX_REQ
+				readIndexLock.Lock()
+				readIndexes[messageId] = &ReadIndexStore{Acks: 1, Proposer: peerIndex + 1}
+				readIndexLock.Unlock()
+				for peerIdx := range s.peerAddresses {
+					if peerIdx == int(s.config.ID-1) {
+						continue
+					}
+					connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIdx], 1) % uint32(s.flags.NumPeerConnections)
+					peer := s.peerConnections[peerIdx][connIdx]
+					bufferCopy := s.GetBuffer(21)
+					copy(bufferCopy, buffer[:21])
+					peer.Channel <- func() {
+						if err := shared.Write(*peer.Connection, bufferCopy[:21]); err != nil {
+							log.Printf("Write error to peer %d: %v", s.leader, err)
+						}
+						s.PutBuffer(bufferCopy)
+					}
+				}
+				s.PutBuffer(buffer)
+			} else {
+				fmt.Printf("Unexpected read index request when we are not the leader!\n")
+			}
+		} else if op == shared.OP_READ_INDEX_REQ {
+			messageId := uuid.UUID(readBuffer[1:17])
+			size := 21
+			buffer := s.GetBuffer(size)
+			binary.LittleEndian.PutUint32(buffer[0:4], uint32(size))
+			copy(buffer[5:21], messageId[:16])
+			buffer[4] = shared.OP_READ_INDEX_ACK
+			connIdx := atomic.AddUint32(&s.peerConnRoundRobins[peerIndex], 1) % uint32(s.flags.NumPeerConnections)
+			peer := s.peerConnections[peerIndex][connIdx]
+			peer.Channel <- func() {
+				if err := shared.Write(*peer.Connection, buffer[:21]); err != nil {
+					log.Printf("Write error to peer %d: %v", s.leader, err)
+				}
+				s.PutBuffer(buffer)
+			}
+		} else if op == shared.OP_READ_INDEX_ACK {
+			messageId := uuid.UUID(readBuffer[1:17])
+			removed := false
+			readIndexLock.Lock()
+			readIndexStore, exists := readIndexes[messageId]
+			if !exists {
+				//fmt.Printf("Read index not found for messageId: %v\n", messageId)
+				readIndexLock.Unlock()
+				continue
+			}
+			readIndexStore.Acks++
+			if readIndexStore.Acks >= len(s.peerAddresses)/2+1 {
+				removed = true
+				//fmt.Printf("Received quorum for messageid: %v\n", messageId)
+				delete(readIndexes, messageId)
+			}
+			readIndexLock.Unlock()
+			if removed {
+				//fmt.Printf("leader=%d proposer=%d\n", s.config.ID, readIndexStore.Proposer)
+				if s.leader == readIndexStore.Proposer {
+					value, ok := s.senders.Load(messageId)
+					if !ok {
+						fmt.Printf("Unexpected read index resp from leader %d!\n", messageId)
+					}
+					pendingRead := value.(shared.PendingRead)
+					commitIndex := atomic.LoadUint32(&s.commitIndex)
+					pendingReadRequestLock.Lock()
+					if pendingReadRequests[int(commitIndex)] == nil {
+						pendingReadRequests[int(commitIndex)] = make([]shared.PendingRead, 0)
+					}
+					pendingReadRequests[int(commitIndex)] = append(pendingReadRequests[int(commitIndex)], pendingRead)
+					pendingReadRequestLock.Unlock()
+					s.Trigger(uint64(atomic.LoadUint32(&s.commitIndex)))
+				} else {
+					buffer := s.GetBuffer(25)
+					connIdx := atomic.AddUint32(&s.peerConnRoundRobins[readIndexStore.Proposer-1], 1) % uint32(s.flags.NumPeerConnections)
+					peer := s.peerConnections[readIndexStore.Proposer-1][connIdx]
+					binary.LittleEndian.PutUint32(buffer[0:4], uint32(25))
+					copy(buffer[5:21], messageId[:16])
+					binary.LittleEndian.PutUint32(buffer[21:25], atomic.LoadUint32(&s.commitIndex))
+					buffer[4] = shared.OP_READ_INDEX_RESP
+					//fmt.Printf("Writing out response then!\n")
+
+					peer.Channel <- func() {
+						if err := shared.Write(*peer.Connection, buffer[:25]); err != nil {
+							log.Printf("Write error to peer %d: %v", s.leader, err)
+						}
+						s.PutBuffer(buffer)
+					}
+				}
+			}
 		} else if op == shared.OP_READ_INDEX_RESP {
-
+			messageId := uuid.UUID(readBuffer[1:17])
+			commitIndex := binary.LittleEndian.Uint32(readBuffer[17:21])
+			value, ok := s.senders.Load(messageId)
+			if !ok {
+				fmt.Printf("Unexpected read index resp from leader %d!\n", messageId)
+			}
+			pendingRead := value.(shared.PendingRead)
+			pendingReadRequestLock.Lock()
+			if pendingReadRequests[int(commitIndex)] == nil {
+				pendingReadRequests[int(commitIndex)] = make([]shared.PendingRead, 0)
+			}
+			pendingReadRequests[int(commitIndex)] = append(pendingReadRequests[int(commitIndex)], pendingRead)
+			pendingReadRequestLock.Unlock()
+			s.Trigger(uint64(atomic.LoadUint32(&s.commitIndex)))
 		} else {
 			panic(fmt.Sprintf("Unknown op: %v", op))
 		}
