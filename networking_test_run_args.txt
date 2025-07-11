@@ -39,3 +39,31 @@ client 127.0.0.1:7000 1 1000000 10
 client -addresses=10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900 -data-size=100000 -ops=10000 -read-ratio=0.5 -clients=33 -read-mem=true -write-mem=false -find-leader=false
 
 
+
+
+start by running these commands on 4 machines.
+1: sudo su
+2: go version
+notes: if there is no go version, it is likely a bad node. restart all the nodes every benchmark. large data such as 100k for read/write workloads error is known on etcd-light.
+
+
+etcd-light server
+cd /local/go_networking_benchmark/run && cd .. && git pull && go build && mv networking_benchmark run/ && cd /local/go_networking_benchmark/run && ./networking_benchmark server -node=0 -memory=false -wal-file-count=1 -manual=fsync -flags=none -peer-connections=1 -peer-listen="10.10.1.1:6900" -client-listen="10.10.1.1:7000" -peer-addresses="10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900" -fast-path-writes=false
+cd /local/go_networking_benchmark/run && cd .. && git pull && go build && mv networking_benchmark run/ && cd /local/go_networking_benchmark/run && ./networking_benchmark server -node=1 -memory=false -wal-file-count=1 -manual=fsync -flags=none -peer-connections=1 -peer-listen="10.10.1.2:6900" -client-listen="10.10.1.2:7000" -peer-addresses="10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900" -fast-path-writes=false
+cd /local/go_networking_benchmark/run && cd .. && git pull && go build && mv networking_benchmark run/ && cd /local/go_networking_benchmark/run && ./networking_benchmark server -node=2 -memory=false -wal-file-count=1 -manual=fsync -flags=none -peer-connections=1 -peer-listen="10.10.1.3:6900" -client-listen="10.10.1.3:7000" -peer-addresses="10.10.1.1:6900,10.10.1.2:6900,10.10.1.3:6900" -fast-path-writes=false
+
+etcd-light client on node4
+notes: num-clients flag will do that many clients per address. example: 3 addresses and 10 numclients will = 30 clients
+notes: find-leader set to true will do leader only instead of all connections. still pass in all addresses so it can find the leader.
+cd /local/go_networking_benchmark && git pull && go build && ./networking_benchmark client -addresses=10.10.1.1:7000,10.10.1.2:7000,10.10.1.3:7000 -data-size=1 -ops=1000000 -read-ratio=0.0 -clients=33 -read-mem=false -write-mem=false -find-leader=false
+
+etcd client
+notes: num-clients flag will do that many clients per address. example: 3 addresses and 10 numclients will = 30 clients
+notes: you must manually find leader only and set the addresses to just that address if testing leader only.
+client: cd /local/etcd-client && git pull && go build && ./etcd-client -addresses=10.10.1.1:2379,10.10.1.2:2379,10.10.1.3:2379 -data-size=1 -num-ops=10000 -read-ratio=1.0 -num-clients=5
+
+etcd server
+notes: if testing in_memory instead of on disk, you must edit the boolean in run_etcd scripts towards the bottom.
+node1: cd /local && sh run_etcd0.sh
+node2: cd /local && sh run_etcd1.sh
+node3: cd /local && sh run_etcd2.sh

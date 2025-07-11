@@ -49,6 +49,7 @@ type Pools struct {
 	pool50           *shared.Pool[[]byte]
 	pool1500         *shared.Pool[[]byte]
 	pool15000        *shared.Pool[[]byte]
+	pool50000        *shared.Pool[[]byte]
 	pool150000       *shared.Pool[[]byte]
 	poolMaxBatchSize *shared.Pool[[]byte]
 }
@@ -60,6 +61,8 @@ func (s *Server) GetBuffer(required int) []byte {
 		return s.pools.pool1500.Get()
 	} else if required < 15000 {
 		return s.pools.pool15000.Get()
+	} else if required < 50000 {
+		return s.pools.pool50000.Get()
 	} else if required < 150000 {
 		return s.pools.pool150000.Get()
 	} else {
@@ -74,6 +77,8 @@ func (s *Server) PutBuffer(buffer []byte) {
 		s.pools.pool1500.Put(buffer)
 	} else if len(buffer) == 15000 {
 		s.pools.pool15000.Put(buffer)
+	} else if len(buffer) == 50000 {
+		s.pools.pool50000.Put(buffer)
 	} else if len(buffer) == 150000 {
 		s.pools.pool150000.Put(buffer)
 	} else {
@@ -119,6 +124,10 @@ func (s *Server) initPool() {
 		pool15000: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool 15000\n")
 			return make([]byte, 15000)
+		}),
+		pool50000: shared.NewPool(64, func() []byte {
+			fmt.Printf("Creating new pool 50000\n")
+			return make([]byte, 50000)
 		}),
 		pool150000: shared.NewPool(64, func() []byte {
 			fmt.Printf("Creating new pool 150000\n")
