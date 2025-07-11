@@ -1,7 +1,7 @@
 package server
 
+import "C"
 import (
-	"C"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -17,6 +17,10 @@ import (
 func cAlloc(size int) []byte {
 	ptr := C.malloc(C.size_t(size))
 	return (*[1 << 30]byte)(unsafe.Pointer(ptr))[:size:size]
+}
+
+func cFree(b []byte) {
+	C.free(unsafe.Pointer(&b[0]))
 }
 
 type MessageBatch struct {
