@@ -192,40 +192,40 @@ func (s *Server) setupRaft() {
 
 func (s *Server) processHardState(hs raftpb.HardState) {
 	if !raft.IsEmptyHardState(hs) {
-		if !(s.flags.Memory) {
-			buffer := s.GetBuffer(hs.Size())
-			size, err := hs.MarshalTo(buffer)
-			if err != nil {
-				panic(err)
-			}
-			count := int64(0)
-			for {
-				wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
-				if err != nil {
-					panic(err)
-				}
-				count += int64(wrote)
-				if count == int64(size) {
-					break
-				}
-			}
-			if s.flags.Manual == "fsync" {
-				fd := int(s.hardstateFile.Fd())
-				err = syscall.Fsync(fd)
-				if err != nil {
-					fmt.Println("Error fsyncing file: ", err)
-					return
-				}
-			} else if s.flags.Manual == "dsync" {
-				fd := int(s.hardstateFile.Fd())
-				err = syscall.Fdatasync(fd)
-				if err != nil {
-					fmt.Println("Error fsyncing file: ", err)
-					return
-				}
-			}
-			s.PutBuffer(buffer)
-		}
+		//if !(s.flags.Memory) {
+		//	buffer := s.GetBuffer(hs.Size())
+		//	size, err := hs.MarshalTo(buffer)
+		//	if err != nil {
+		//		panic(err)
+		//	}
+		//	count := int64(0)
+		//	for {
+		//		wrote, err := s.hardstateFile.WriteAt(buffer[count:size], count)
+		//		if err != nil {
+		//			panic(err)
+		//		}
+		//		count += int64(wrote)
+		//		if count == int64(size) {
+		//			break
+		//		}
+		//	}
+		//	if s.flags.Manual == "fsync" {
+		//		fd := int(s.hardstateFile.Fd())
+		//		err = syscall.Fsync(fd)
+		//		if err != nil {
+		//			fmt.Println("Error fsyncing file: ", err)
+		//			return
+		//		}
+		//	} else if s.flags.Manual == "dsync" {
+		//		fd := int(s.hardstateFile.Fd())
+		//		err = syscall.Fdatasync(fd)
+		//		if err != nil {
+		//			fmt.Println("Error fsyncing file: ", err)
+		//			return
+		//		}
+		//	}
+		//	s.PutBuffer(buffer)
+		//}
 
 		err := s.storage.SetHardState(hs)
 		if err != nil {
