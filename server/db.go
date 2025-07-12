@@ -45,7 +45,37 @@ func Put(db *bbolt.DB, key []byte, value []byte) error {
 
 func (s *Server) DbHandler(channel chan []byte, dbIndex int) {
 	memoryDb := make(map[int][]byte)
-	boltDb, err := bbolt.Open(fmt.Sprintf("db.%d", dbIndex), 0600, nil)
+	bopts := &bbolt.Options{}
+
+	bopts.NoSync = false
+	bopts.NoGrowSync = false
+	bopts.NoFreelistSync = true
+	bopts.FreelistType = bbolt.FreelistMapType
+	bopts.MmapFlags = 8000
+	bopts.Mlock = false
+	bopts.InitialMmapSize = 10737418240
+	bopts.PageSize = 0
+
+	fmt.Printf("Options: %v\n", bopts)
+
+	boltDb, err := bbolt.Open(fmt.Sprintf("db.%d", dbIndex), 0600, bopts)
+
+	//boltDb.M
+	//Bolt options: {
+	//	Timeout: 0s,
+	//	NoGrowSync: false,
+	//	NoFreelistSync: true,
+	//	PreLoadFreelist: false,
+	//	FreelistType: hashmap,
+	//	ReadOnly: false,
+	//	MmapFlags: 8000,
+	//	InitialMmapSize: 10737418240,
+	//	PageSize: 0,
+	//	NoSync: false,
+	//	OpenFile: 0x0,
+	//	Mlock: false,
+	//	Logger: 0xc0000d0c30
+	//}
 	if err != nil {
 		panic(err)
 	}
