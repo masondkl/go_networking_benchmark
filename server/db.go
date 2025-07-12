@@ -90,8 +90,12 @@ func (s *Server) DbHandler(channel chan []byte, dbIndex int) {
 			} else if op == shared.OP_WRITE {
 				valueSize := binary.LittleEndian.Uint32(data[keySize+26:])
 				value := data[keySize+30 : keySize+30+valueSize]
-				memoryDb[string(key)] = value
-				err := Put(key, value)
+				index, err := strconv.Atoi(string(key))
+				if err != nil {
+					panic(err)
+				}
+				memoryDb[index] = value
+				err = Put(boltDb, key, value)
 				if err != nil {
 					panic(err)
 				}

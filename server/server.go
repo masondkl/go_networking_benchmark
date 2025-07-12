@@ -37,6 +37,8 @@ type ServerFlags struct {
 	Flags               string
 	Memory              bool
 	FastPathWrites      bool
+	NumDbs              int
+	MaxDbIndex          int
 }
 
 // var OP_FORWARD = byte(0)
@@ -99,7 +101,7 @@ type Server struct {
 	walSlots            []WalSlot
 	walBulkFile         *os.File
 	hardstateFile       *os.File
-	dbChannel           chan []byte
+	applyChannels       []chan []byte
 	flags               *ServerFlags
 	pools               *Pools
 	applyIndex          uint64
