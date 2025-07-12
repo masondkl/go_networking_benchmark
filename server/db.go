@@ -57,8 +57,6 @@ func (s *Server) DbHandler(channel chan []byte, dbIndex int) {
 	bopts.InitialMmapSize = 10737418240
 	bopts.PageSize = 0
 
-	fmt.Printf("Options: %v\n", bopts)
-
 	boltDb, err := bbolt.Open(fmt.Sprintf("db.%d", dbIndex), 0600, bopts)
 
 	//boltDb.M

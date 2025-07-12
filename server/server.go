@@ -119,27 +119,21 @@ func (s *Server) initPool() {
 
 	s.pools = &Pools{
 		pool50: shared.NewPool(500000, func() []byte {
-			fmt.Printf("Creating new pool 50\n")
 			return make([]byte, 50)
 		}),
 		pool1500: shared.NewPool(200000, func() []byte {
-			fmt.Printf("Creating new pool 1500\n")
 			return make([]byte, 1500)
 		}),
 		pool15000: shared.NewPool(5000, func() []byte {
-			fmt.Printf("Creating new pool 15000\n")
 			return make([]byte, 15000)
 		}),
 		pool50000: shared.NewPool(1000, func() []byte {
-			fmt.Printf("Creating new pool 50000\n")
 			return make([]byte, 50000)
 		}),
 		pool150000: shared.NewPool(1000, func() []byte {
-			fmt.Printf("Creating new pool 150000\n")
 			return make([]byte, 150000)
 		}),
 		poolMaxBatchSize: shared.NewPool(1000, func() []byte {
-			fmt.Printf("Creating new pool %d\n", maxBatchSize)
 			return make([]byte, maxBatchSize)
 		}),
 	}
