@@ -118,27 +118,27 @@ var poolSize uint32
 func (s *Server) initPool() {
 
 	s.pools = &Pools{
-		pool50: shared.NewPool(64, func() []byte {
+		pool50: shared.NewPool(500000, func() []byte {
 			//fmt.Printf("Creating new pool 50\n")
 			return make([]byte, 50)
 		}),
-		pool1500: shared.NewPool(64, func() []byte {
+		pool1500: shared.NewPool(200000, func() []byte {
 			//fmt.Printf("Creating new pool 1500\n")
 			return make([]byte, 1500)
 		}),
-		pool15000: shared.NewPool(64, func() []byte {
+		pool15000: shared.NewPool(50000, func() []byte {
 			//fmt.Printf("Creating new pool 15000\n")
 			return make([]byte, 15000)
 		}),
-		pool50000: shared.NewPool(64, func() []byte {
+		pool50000: shared.NewPool(20000, func() []byte {
 			//fmt.Printf("Creating new pool 50000\n")
 			return make([]byte, 50000)
 		}),
-		pool150000: shared.NewPool(64, func() []byte {
+		pool150000: shared.NewPool(5000, func() []byte {
 			//fmt.Printf("Creating new pool 150000\n")
 			return make([]byte, 150000)
 		}),
-		poolMaxBatchSize: shared.NewPool(64, func() []byte {
+		poolMaxBatchSize: shared.NewPool(2500, func() []byte {
 			//fmt.Printf("Creating new pool MaxBatchSize\n")
 			return make([]byte, maxBatchSize)
 		}),
@@ -387,11 +387,7 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 			if err != nil {
 				panic(err)
 			}
-			whichIndex := (index * s.flags.NumDbs) / s.flags.MaxDbIndex
-			//fmt.Printf("Which index: %d\n", whichIndex)
-			//fmt.Printf("Which index: %d - %d - %d - %d\n", whichIndex, s.flags.MaxDbIndex, s.flags.NumDbs, index)
-
-			s.applyChannels[whichIndex] <- entry.Data
+			s.applyChannels[(index*s.flags.NumDbs)/s.flags.MaxDbIndex] <- entry.Data
 			if s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
 				s.respondToClient(op, messageId, nil)
 			}
