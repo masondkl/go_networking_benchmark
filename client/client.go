@@ -168,7 +168,7 @@ func StartClient(args []string) {
 	}
 
 	for i := 0; i < numOps; i++ {
-		client.Keys[i] = []byte(fmt.Sprintf("key%d", i))
+		client.Keys[i] = []byte(fmt.Sprintf("%d", i))
 		client.WarmupValues[i] = []byte(strings.Repeat("x", dataSize))
 		client.UpdateValues[i] = []byte(strings.Repeat("z", dataSize))
 	}

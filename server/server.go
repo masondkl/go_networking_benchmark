@@ -354,7 +354,13 @@ func (s *Server) Trigger(index uint64) {
 	for readIndex, values := range pendingReadRequests {
 		if readIndex <= int(index) {
 			for _, value := range values {
-				s.dbChannel <- value.Data
+				keySize := binary.LittleEndian.Uint32(value.Data[22:26])
+				key := value.Data[26 : keySize+26]
+				index, err := strconv.Atoi(string(key))
+				if err != nil {
+					panic(err)
+				}
+				s.applyChannels[(index*s.flags.NumDbs)/s.flags.MaxDbIndex] <- value.Data
 			}
 			toDelete = append(toDelete, readIndex)
 		}
@@ -370,14 +376,25 @@ func (s *Server) processNormalCommitEntry(entry raftpb.Entry) {
 		messageId := uuid.UUID(entry.Data[1:17])
 		ownerIndex := binary.LittleEndian.Uint32(entry.Data[17:21])
 		op := entry.Data[21]
+
 		atomic.SwapUint32(&s.commitIndex, uint32(entry.Index))
-		s.Trigger(entry.Index)
 		if op == shared.OP_WRITE || op == shared.OP_WRITE_MEMORY {
-			s.dbChannel <- entry.Data
+			keySize := binary.LittleEndian.Uint32(entry.Data[22:26])
+			key := entry.Data[26 : keySize+26]
+			index, err := strconv.Atoi(string(key))
+			if err != nil {
+				panic(err)
+			}
+			whichIndex := (index * s.flags.NumDbs) / s.flags.MaxDbIndex
+			//fmt.Printf("Which index: %d\n", whichIndex)
+			//fmt.Printf("Which index: %d - %d - %d - %d\n", whichIndex, s.flags.MaxDbIndex, s.flags.NumDbs, index)
+
+			s.applyChannels[whichIndex] <- entry.Data
 			if s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
 				s.respondToClient(op, messageId, nil)
 			}
 		}
+		s.Trigger(entry.Index)
 	}
 }
 
@@ -444,7 +461,7 @@ func NewServer(serverFlags *ServerFlags) *Server {
 	s := &Server{
 		peerAddresses:    strings.Split(serverFlags.PeerAddressesString, ","),
 		walSlots:         make([]WalSlot, serverFlags.WalFileCount),
-		dbChannel:        make(chan []byte, 10000000),
+		applyChannels:    make([]chan []byte, serverFlags.NumDbs),
 		flags:            serverFlags,
 		waiters:          make(map[uint64][][]byte),
 		proposeChannel:   make(chan func(), 1000000),
@@ -501,7 +518,11 @@ func NewServer(serverFlags *ServerFlags) *Server {
 	}
 	s.walBulkFile = bulkFile
 
-	go s.DbHandler()
+	for i := range s.applyChannels {
+		channel := make(chan []byte, 1000000)
+		s.applyChannels[i] = channel
+		go s.DbHandler(channel, i)
+	}
 
 	s.setupRaft()
 	go s.startPeerListener()
@@ -566,7 +587,10 @@ func StartServer(args []string) {
 		Flags               = fs.String("flags", "none", "fsync, dsync, sync, none")
 		Memory              = fs.Bool("memory", false, "use Memory")
 		FastPathWrites      = fs.Bool("fast-path-writes", false, "Skip waiting to apply ")
+		NumDbs              = fs.Int("num-dbs", 0, "number of bolt databases")
+		MaxDbIndex          = fs.Int("max-db-index", 0, "maximum index for database to partition from")
 	)
+
 	err := fs.Parse(args)
 	if err != nil {
 		panic(err)
@@ -582,7 +606,16 @@ func StartServer(args []string) {
 		*Flags,
 		*Memory,
 		*FastPathWrites,
+		*NumDbs,
+		*MaxDbIndex,
 	}
+	if *NumPeerConnections <= 0 {
+		log.Fatalf("-num-dbs must be > 0")
+	}
+	if *NumPeerConnections <= 0 {
+		log.Fatalf("-max-db-index must be > 0")
+	}
+
 	if *NumPeerConnections <= 0 {
 		log.Fatalf("-peer-connections must be > 0")
 	}
@@ -621,7 +654,6 @@ func StartServer(args []string) {
 	if err != nil {
 		panic(err)
 	}
-	SetupKeyBucket()
 	//startProfiling()
 	NewServer(flags).run()
 }

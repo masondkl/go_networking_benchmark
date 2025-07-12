@@ -1,41 +1,19 @@
 package server
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"github.com/google/uuid"
 	"go.etcd.io/bbolt"
 	"networking_benchmark/shared"
+	"strconv"
 )
 
 var (
-	db            *bbolt.DB
 	keyBucketName = []byte("key")
 )
 
-func SetupKeyBucket() {
-	boltDb, err := bbolt.Open("data.db", 0600, nil)
-	if err != nil {
-		panic(err)
-	}
-	db = boltDb
-	tx, err := boltDb.Begin(true)
-	if err != nil {
-		panic(err)
-	}
-
-	_, err = tx.CreateBucketIfNotExists(keyBucketName)
-	if err != nil {
-		panic(err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		panic(err)
-	}
-}
-
-func Get(key []byte) ([]byte, error) {
+func Get(db *bbolt.DB, key []byte) ([]byte, error) {
 	tx, err := db.Begin(false)
 	if err != nil {
 		return nil, err
@@ -50,7 +28,7 @@ func Get(key []byte) ([]byte, error) {
 	return value, nil
 }
 
-func Put(key []byte, value []byte) error {
+func Put(db *bbolt.DB, key []byte, value []byte) error {
 	tx, err := db.Begin(true)
 	if err != nil {
 		panic(err)
@@ -65,35 +43,29 @@ func Put(key []byte, value []byte) error {
 	return writeError
 }
 
-func Range(start, end []byte) (map[string][]byte, error) {
-	results := make(map[string][]byte)
-
-	tx, err := db.Begin(false)
+func (s *Server) DbHandler(channel chan []byte, dbIndex int) {
+	memoryDb := make(map[int][]byte)
+	boltDb, err := bbolt.Open(fmt.Sprintf("db.%d", dbIndex), 0600, nil)
 	if err != nil {
-		return nil, err
+		panic(err)
+	}
+	tx, err := boltDb.Begin(true)
+	if err != nil {
+		panic(err)
 	}
 
-	c := tx.Bucket(keyBucketName).Cursor()
-	for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-		keyCopy := append([]byte(nil), k...)
-		valCopy := append([]byte(nil), v...)
-		results[string(keyCopy)] = valCopy
+	_, err = tx.CreateBucketIfNotExists(keyBucketName)
+	if err != nil {
+		panic(err)
 	}
 
-	if err := tx.Rollback(); err != nil {
-		return nil, err
+	if err := tx.Commit(); err != nil {
+		panic(err)
 	}
 
-	return results, nil
-}
-
-var memoryDb map[string][]byte
-
-func (s *Server) DbHandler() {
-	memoryDb = make(map[string][]byte)
 	for {
 		select {
-		case data := <-s.dbChannel:
+		case data := <-channel:
 			//fmt.Printf("Handling data\n")
 			//messageIndex := binary.LittleEndian.Uint32(data[1:5])
 			messageId := uuid.UUID(data[1:17])
@@ -106,7 +78,11 @@ func (s *Server) DbHandler() {
 				//fmt.Printf("Write memory\n")
 				valueSize := binary.LittleEndian.Uint32(data[keySize+26:])
 				value := data[keySize+30 : keySize+30+valueSize]
-				memoryDb[string(key)] = value
+				index, err := strconv.Atoi(string(key))
+				if err != nil {
+					panic(err)
+				}
+				memoryDb[index] = value
 				if !s.flags.FastPathWrites && ownerIndex == uint32(s.config.ID) {
 					//fmt.Printf("We are the owner: %d\n")
 					s.respondToClient(shared.OP_WRITE_MEMORY, messageId, nil)
@@ -124,13 +100,17 @@ func (s *Server) DbHandler() {
 				}
 			} else if ownerIndex == uint32(s.config.ID) {
 				if op == shared.OP_READ_MEMORY {
-					value := memoryDb[string(key)]
+					index, err := strconv.Atoi(string(key))
+					if err != nil {
+						panic(err)
+					}
+					value := memoryDb[index]
 					if value == nil {
 						fmt.Println("No key found")
 					}
 					s.respondToClient(shared.OP_READ_MEMORY, messageId, value)
 				} else if op == shared.OP_READ {
-					value, err := Get(key)
+					value, err := Get(boltDb, key)
 					if err != nil {
 						panic(err)
 					}

@@ -60,7 +60,7 @@ cd /local/go_networking_benchmark && git pull && go build && ./networking_benchm
 etcd client
 notes: num-clients flag will do that many clients per address. example: 3 addresses and 10 numclients will = 30 clients
 notes: you must manually find leader only and set the addresses to just that address if testing leader only.
-client: cd /local/etcd-client && git pull && go build && ./etcd-client -addresses=10.10.1.1:2379,10.10.1.2:2379,10.10.1.3:2379 -data-size=1 -num-ops=10000 -read-ratio=1.0 -num-clients=5
+cd /local/etcd-client && git pull && go build && ./etcd-client -addresses=10.10.1.1:2379,10.10.1.2:2379,10.10.1.3:2379 -data-size=1 -num-ops=10000 -read-ratio=1.0 -num-clients=5
 
 etcd server
 notes: if testing in_memory instead of on disk, you must edit the boolean in run_etcd scripts towards the bottom.

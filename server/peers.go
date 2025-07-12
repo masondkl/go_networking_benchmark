@@ -275,6 +275,7 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			messageId := uuid.UUID(readBuffer[1:17])
 			commitIndex := binary.LittleEndian.Uint32(readBuffer[17:21])
 			value, ok := s.senders.Load(messageId)
+
 			if !ok {
 				fmt.Printf("Unexpected read index resp from leader %d!\n", messageId)
 			}
@@ -285,6 +286,8 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 			}
 			pendingReadRequests[int(commitIndex)] = append(pendingReadRequests[int(commitIndex)], pendingRead)
 			pendingReadRequestLock.Unlock()
+
+			// boltDbs[key.hash].Put(key, value)
 			s.Trigger(uint64(atomic.LoadUint32(&s.commitIndex)))
 		} else {
 			panic(fmt.Sprintf("Unknown op: %v", op))
