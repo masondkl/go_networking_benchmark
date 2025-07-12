@@ -7,6 +7,7 @@ import (
 	"go.etcd.io/bbolt"
 	"networking_benchmark/shared"
 	"strconv"
+	"syscall"
 )
 
 var (
@@ -51,9 +52,9 @@ func (s *Server) DbHandler(channel chan []byte, dbIndex int) {
 	bopts.NoGrowSync = false
 	bopts.NoFreelistSync = true
 	bopts.FreelistType = bbolt.FreelistMapType
-	bopts.MmapFlags = 8000
+	bopts.MmapFlags = syscall.MAP_POPULATE
 	bopts.Mlock = false
-	bopts.InitialMmapSize = 1000000
+	bopts.InitialMmapSize = 10737418240
 	bopts.PageSize = 0
 
 	fmt.Printf("Options: %v\n", bopts)

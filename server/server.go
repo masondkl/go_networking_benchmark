@@ -652,6 +652,6 @@ func StartServer(args []string) {
 	if err != nil {
 		panic(err)
 	}
-	startProfiling()
+	//startProfiling()
 	NewServer(flags).run()
 }
