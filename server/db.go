@@ -53,7 +53,7 @@ func (s *Server) DbHandler(channel chan []byte, dbIndex int) {
 	bopts.FreelistType = bbolt.FreelistMapType
 	bopts.MmapFlags = 8000
 	bopts.Mlock = false
-	bopts.InitialMmapSize = 3737418240
+	bopts.InitialMmapSize = 1737418240
 	bopts.PageSize = 0
 
 	fmt.Printf("Options: %v\n", bopts)
