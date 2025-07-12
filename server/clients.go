@@ -127,7 +127,8 @@ func (s *Server) handleClientMessage(client shared.Client, data []byte) {
 	} else {
 		s.senders.Store(messageId, client)
 		if s.leader == ownerId {
-			dataCopy := make([]byte, size)
+			dataCopy := s.GetBuffer(size)
+			//dataCopy := make([]byte, size)
 			dataCopy[0] = shared.OP_MESSAGE
 			copy(dataCopy[1:17], messageId[:16])
 			binary.LittleEndian.PutUint32(dataCopy[17:21], ownerId)
