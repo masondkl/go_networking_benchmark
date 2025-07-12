@@ -126,15 +126,15 @@ func (s *Server) initPool() {
 			fmt.Printf("Creating new pool 1500\n")
 			return make([]byte, 1500)
 		}),
-		pool15000: shared.NewPool(200000, func() []byte {
+		pool15000: shared.NewPool(5000, func() []byte {
 			fmt.Printf("Creating new pool 15000\n")
 			return make([]byte, 15000)
 		}),
-		pool50000: shared.NewPool(20000, func() []byte {
+		pool50000: shared.NewPool(1000, func() []byte {
 			fmt.Printf("Creating new pool 50000\n")
 			return make([]byte, 50000)
 		}),
-		pool150000: shared.NewPool(5000, func() []byte {
+		pool150000: shared.NewPool(1000, func() []byte {
 			fmt.Printf("Creating new pool 150000\n")
 			return make([]byte, 150000)
 		}),

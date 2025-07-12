@@ -141,8 +141,8 @@ func (s *Server) handlePeerConnection(conn net.Conn) {
 		if op == shared.OP_FORWARD {
 			//fmt.Printf("Got forward from peer %d\n", peerIndex)
 			//buffer := s.GetBuffer(int(totalSize))
-			buffer := s.GetBuffer(int(totalSize))
-			//buffer := make([]byte, totalSize)
+			//buffer := s.GetBuffer(int(totalSize))
+			buffer := make([]byte, totalSize)
 			copy(buffer, readBuffer[:totalSize])
 			s.proposeChannel <- func() {
 				if err := s.node.Propose(context.TODO(), buffer[:totalSize]); err != nil {
