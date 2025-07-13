@@ -256,7 +256,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 
 			group.Add(len(grouped))
 
-			fmt.Printf("Building entry WAL: %d\n", entryCount)
+			fmt.Printf("\nBuilding entry WAL: %d\n", entryCount)
 			for walIndex := range grouped {
 				walEntries := grouped[walIndex]
 				slot := s.walSlots[walIndex]
