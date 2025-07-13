@@ -256,6 +256,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 
 			group.Add(len(grouped))
 
+			fmt.Printf("Building entry WAL: %d\n", entryCount)
 			for walIndex := range grouped {
 				walEntries := grouped[walIndex]
 				slot := s.walSlots[walIndex]
@@ -263,10 +264,13 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 				for entryIndex := range walEntries {
 					size += walEntries[entryIndex].Size()
 				}
+				fmt.Printf("Grabbing buffer of size: %d\n", size)
 				buffer := s.GetBuffer(size)
+				fmt.Printf("Got buffer: cap=%d len=\n", cap(buffer), len(buffer))
 				size = 0
 				for entryIndex := range walEntries {
 					entry := walEntries[entryIndex]
+					fmt.Printf("Entry size: %d\n", entry.Size())
 					entrySize, err := entry.MarshalTo(buffer[size:])
 					if err != nil {
 						panic(err)
