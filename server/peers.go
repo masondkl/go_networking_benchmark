@@ -19,7 +19,7 @@ type MessageBatch struct {
 	Messages  []raftpb.Message
 }
 
-var maxBatchSize = (1024 * 1024) * 50
+var maxBatchSize = (1024 * 1024) * 75
 
 var grouped = make(map[uint64][]*MessageBatch)
 
