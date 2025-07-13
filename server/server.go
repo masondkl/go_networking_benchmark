@@ -266,7 +266,7 @@ func (s *Server) processEntries(entries []raftpb.Entry) {
 				}
 				fmt.Printf("Grabbing buffer of size: %d\n", size)
 				buffer := s.GetBuffer(size)
-				fmt.Printf("Got buffer: cap=%d len=\n", cap(buffer), len(buffer))
+				fmt.Printf("Got buffer: cap=%d len=%d\n", cap(buffer), len(buffer))
 				size = 0
 				for entryIndex := range walEntries {
 					entry := walEntries[entryIndex]
