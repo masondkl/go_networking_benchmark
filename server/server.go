@@ -59,35 +59,36 @@ type Pools struct {
 }
 
 func (s *Server) GetBuffer(required int) []byte {
-	if required < 50 {
-		return s.pools.pool50.Get()
-	} else if required < 1500 {
-		return s.pools.pool1500.Get()
-	} else if required < 15000 {
-		return s.pools.pool15000.Get()
-	} else if required < 50000 {
-		return s.pools.pool150000.Get()
-	} else if required < 150000 {
-		return s.pools.pool150000.Get()
-	} else {
-		return s.pools.poolMaxBatchSize.Get()
-	}
+	//if required < 50 {
+	//	return s.pools.pool50.Get()
+	//} else if required < 1500 {
+	//	return s.pools.pool1500.Get()
+	//} else if required < 15000 {
+	//	return s.pools.pool15000.Get()
+	//} else if required < 50000 {
+	//	return s.pools.pool150000.Get()
+	//} else if required < 150000 {
+	//	return s.pools.pool150000.Get()
+	//} else {
+	//	return s.pools.poolMaxBatchSize.Get()
+	//}
+	return make([]byte, required)
 }
 
 func (s *Server) PutBuffer(buffer []byte) {
-	if len(buffer) == 50 {
-		s.pools.pool50.Put(buffer)
-	} else if len(buffer) == 1500 {
-		s.pools.pool1500.Put(buffer)
-	} else if len(buffer) == 15000 {
-		s.pools.pool15000.Put(buffer)
-	} else if len(buffer) == 50000 {
-		s.pools.pool50000.Put(buffer)
-	} else if len(buffer) == 150000 {
-		s.pools.pool150000.Put(buffer)
-	} else {
-		s.pools.poolMaxBatchSize.Put(buffer)
-	}
+	//if len(buffer) == 50 {
+	//	s.pools.pool50.Put(buffer)
+	//} else if len(buffer) == 1500 {
+	//	s.pools.pool1500.Put(buffer)
+	//} else if len(buffer) == 15000 {
+	//	s.pools.pool15000.Put(buffer)
+	//} else if len(buffer) == 50000 {
+	//	s.pools.pool50000.Put(buffer)
+	//} else if len(buffer) == 150000 {
+	//	s.pools.pool150000.Put(buffer)
+	//} else {
+	//	s.pools.poolMaxBatchSize.Put(buffer)
+	//}
 }
 
 type Server struct {
